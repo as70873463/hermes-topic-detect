@@ -6,6 +6,5 @@ description: >
 author: custom
 hooks:
   - pre_llm_call
-  - post_llm_call
   - on_session_start
   - on_session_reset
