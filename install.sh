@@ -1,10 +1,10 @@
 #!/bin/bash
 # hermes-topic-detect installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/as70873463/hermes-topic-detect/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-topic-detect/main/install.sh | bash
 
 set -e
 
-REPO="as70873463/hermes-topic-detect"
+REPO="ShockShoot/hermes-topic-detect"
 PLUGIN_DIR="$HOME/.hermes/plugins/topic_detect"
 TMP_DIR=$(mktemp -d)
 

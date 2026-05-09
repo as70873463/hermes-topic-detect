@@ -35,7 +35,7 @@ A Hermes Agent plugin that automatically detects conversation topics and routes 
 ### One-click install (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/as70873463/hermes-topic-detect/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-topic-detect/main/install.sh | bash
 ```
 
 ### Manual install
