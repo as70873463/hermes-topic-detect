@@ -70,12 +70,12 @@ def _pre_llm_call(**kwargs):
     if active_topic == "none":
         target_model = cfg.default_model
     else:
-        target_model = cfg.model_for_topic(active_topic) or cfg.default_model
+        target_model = cfg.resolve_model(active_topic) or cfg.default_model
 
     _state.current_model = target_model
 
     short_name = target_model.split("/")[-1] if "/" in target_model else target_model
-    short_name = short_name.split(":")[0]  # remove :free suffix
+    short_name = short_name.split(":")[0]
 
     logger.info(
         "✓ TOPIC: %s | MODEL: %s | CONFIDENCE: %.2f",
@@ -84,20 +84,20 @@ def _pre_llm_call(**kwargs):
         result.confidence,
     )
 
-    # Inject signature instruction into user_message so model appends it
+    # Return context dict — Hermes injects this into the user message.
+    # This is the ONLY supported return format for pre_llm_call hooks.
     if active_topic != "none":
         sig = f"— {short_name} [{active_topic}]"
-        user_msg = (
-            f"{user_msg}"
-            f"\n\n"
-            f"CRITICAL FINAL MESSAGE:\n"
-            f"Print ONLY the following as the absolute last line of your response:\n"
-            f"{sig}"
+        context_text = (
+            f"[topic_detect] Detected topic: {active_topic}. "
+            f"Active model: {short_name}. "
+            f"Confidence: {result.confidence:.2f}. "
+            f"End your response with: {sig}"
         )
         logger.info("SIG: %s [%s]", short_name, active_topic)
-        return {"model": target_model, "user_message": user_msg}
+        return {"context": context_text}
 
-    return {"model": target_model} if target_model else None
+    return None
 
 
 def _on_session_start(**kwargs):
