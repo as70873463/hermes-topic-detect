@@ -128,6 +128,10 @@ TOPIC_SIGNALS: dict[str, list[tuple[str, float]]] = {
         (r"(?i)\bimport\b", 2.0), (r"(?i)\bmodule\b", 2.0),
         (r"(?i)\bpackage\b", 2.0), (r"(?i)\blibrary\b", 2.5),
         (r"(?i)\bframework\b", 2.5), (r"(?i)\bapi\b", 2.5),
+        # CLI / shell tools
+        (r"(?i)\bcurl\b", 3.0), (r"(?i)\bwget\b", 2.5),
+        (r"(?i)\bbash\b", 2.5), (r"(?i)\bshell\b", 2.0),
+        (r"(?i)\bcommand\s*line\b", 2.5), (r"(?i)\bterminal\b", 2.0),
         (r"(?i)\bjson\b", 2.0), (r"(?i)\bxml\b", 2.0),
         (r"(?i)\bregex\b", 2.5), (r"(?i)\brecursion\b", 3.0),
         (r"(?i)\balgorithm\b", 3.0), (r"(?i)\bdebug\b", 2.5),
@@ -406,6 +410,11 @@ def classify_context(messages: list[dict], window: int = WINDOW) -> TopicResult:
 
     best_topic = max(weighted_scores, key=weighted_scores.get)
     best_score = weighted_scores[best_topic]
+
+    # No meaningful signal → return none
+    if best_score < MIN_SCORE:
+        return TopicResult(topic="none", confidence=0.0, score=0.0)
+
     total = sum(weighted_scores.values())
     confidence = min(best_score / total, CONFIDENCE_CAP) if total > 0 else 0.0
 
@@ -448,14 +457,6 @@ def _pre_llm_call(**kwargs):
     history = kwargs.get("conversation_history") or []
     user_msg = kwargs.get("user_message") or ""
 
-    # Debug: log what we receive
-    logger.info("DEBUG kwargs keys: %s", list(kwargs.keys()))
-    logger.info("DEBUG user_message: %r", user_msg)
-    logger.info("DEBUG history type: %s, len: %s", type(history).__name__, len(history))
-    if history:
-        for i, h in enumerate(history[-3:]):
-            logger.info("DEBUG history[%d]: type=%s, keys=%s", i, type(h).__name__, h if isinstance(h, dict) else str(h)[:100])
-
     # Build messages list
     messages = []
     for entry in history:
@@ -465,10 +466,6 @@ def _pre_llm_call(**kwargs):
             messages.append({"role": "user", "content": entry})
     if isinstance(user_msg, str) and user_msg:
         messages.append({"role": "user", "content": user_msg})
-
-    logger.info("DEBUG final messages count: %d", len(messages))
-    for i, m in enumerate(messages[-5:]):
-        logger.info("DEBUG msg[%d]: role=%s content=%r", i, m.get("role"), str(m.get("content", ""))[:80])
 
     if not messages:
         return None
@@ -498,9 +495,13 @@ def _pre_llm_call(**kwargs):
     short_name = target_model.split("/")[-1] if "/" in target_model else target_model
     short_name = short_name.split(":")[0]
 
+    # Use detected topic for logging (not stale active_topic)
+    log_topic = new_result.topic if new_result.topic != "none" else active_topic
+    log_conf = new_result.confidence
+
     logger.info(
         "✓ TOPIC: %s | MODEL: %s | CONFIDENCE: %.2f",
-        active_topic.upper(), short_name, result.confidence,
+        log_topic.upper(), short_name, log_conf,
     )
 
     if active_topic != "none":
