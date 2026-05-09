@@ -11,51 +11,68 @@ TMP_DIR=$(mktemp -d)
 echo "🧊 Installing hermes-topic-detect plugin..."
 echo ""
 
-# Check prerequisites
 if [ ! -d "$HOME/.hermes" ]; then
     echo "❌ Error: ~/.hermes directory not found. Is Hermes Agent installed?"
     exit 1
 fi
 
-# Create plugins directory if needed
 mkdir -p "$HOME/.hermes/plugins"
 
-# Download latest release from GitHub
 echo "📦 Downloading latest version..."
 git clone --depth 1 "https://github.com/$REPO.git" "$TMP_DIR/repo" 2>/dev/null
 
-# Remove old version if exists
+if [ $? -ne 0 ]; then
+    echo "❌ Failed to clone repository. Check your internet connection."
+    rm -rf "$TMP_DIR"
+    exit 1
+fi
+
 if [ -d "$PLUGIN_DIR" ]; then
     echo "🗑️  Removing old version..."
     rm -rf "$PLUGIN_DIR"
 fi
 
-# Copy plugin files
 echo "📂 Installing to $PLUGIN_DIR..."
 cp -r "$TMP_DIR/repo" "$PLUGIN_DIR"
 
-# Cleanup
 rm -rf "$TMP_DIR"
 
 echo ""
-echo "✅ Plugin installed successfully!"
+echo "✅ Plugin files installed!"
 echo ""
-echo "Next steps:"
-echo "  1. Make sure topic_detect is enabled in ~/.hermes/config.yaml:"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "⚠️  IMPORTANT — You MUST do these steps manually:"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "     topic_detect:"
-echo "       enabled: true"
-echo "       default: openrouter/owl-alpha"
-echo "       topics:"
-echo "         programming:"
-echo "           model: inclusionai/ring-2.6-1t:free"
-echo "         finance:"
-echo "           model: inclusionai/ring-2.6-1t:free"
+echo "1️⃣  Enable the plugin in ~/.hermes/config.yaml:"
 echo ""
-echo "  2. Restart Hermes:"
-echo "     sudo systemctl restart hermes"
+echo "    plugins:"
+echo "      - topic_detect"
 echo ""
-echo "  3. Verify it's working:"
-echo "     hermes logs | grep topic_detect"
+echo "2️⃣  Add topic_detect config in the same file:"
+echo ""
+echo "    topic_detect:"
+echo "      enabled: true"
+echo "      provider: openrouter"
+echo "      default: owl-alpha"
+echo "      topics:"
+echo "        programming:"
+echo "          model: ring-2.6-1t:free"
+echo "        finance:"
+echo "          model: ring-2.6-1t:free"
+echo ""
+echo "3️⃣  Restart Hermes:"
+echo ""
+echo "    sudo systemctl restart hermes"
+echo ""
+echo "4️⃣  Verify it's working:"
+echo ""
+echo "    hermes logs | grep topic_detect"
+echo ""
+echo "    You should see: topic_detect plugin loaded"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "📖 Full docs: https://github.com/ShockShoot/hermes-topic-detect"
 echo ""
 echo "🧊 Done!"
