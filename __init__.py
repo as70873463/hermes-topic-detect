@@ -84,8 +84,9 @@ def _pre_llm_call(**kwargs):
         result.confidence,
     )
 
-    # Return context dict — Hermes injects this into the user message.
-    # This is the ONLY supported return format for pre_llm_call hooks.
+    # Return dict with context + model override.
+    # Hermes pre_llm_call hook supports "context" key (injected into user message).
+    # The "model" key is consumed by the patched run_agent.py to override self.model.
     if active_topic != "none":
         sig = f"— {short_name} [{active_topic}]"
         context_text = (
@@ -95,9 +96,10 @@ def _pre_llm_call(**kwargs):
             f"End your response with: {sig}"
         )
         logger.info("SIG: %s [%s]", short_name, active_topic)
-        return {"context": context_text}
+        return {"context": context_text, "model": target_model}
 
-    return None
+    # Even for "none" topic, return model override to reset to default
+    return {"model": cfg.default_model}
 
 
 def _on_session_start(**kwargs):
