@@ -1,6 +1,6 @@
 #!/bin/bash
-# install.sh — One-click installer for hermes-topic-detect plugin
-# Usage: curl -sSL https://raw.githubusercontent.com/as70873463/hermes-topic-detect/main/install.sh | bash
+# hermes-topic-detect installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/as70873463/hermes-topic-detect/main/install.sh | bash
 
 set -e
 

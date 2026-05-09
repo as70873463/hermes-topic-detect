@@ -32,6 +32,14 @@ A Hermes Agent plugin that automatically detects conversation topics and routes 
 
 ## Installation
 
+### One-click install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/as70873463/hermes-topic-detect/main/install.sh | bash
+```
+
+### Manual install
+
 1. Copy the `topic_detect/` directory into your Hermes plugins folder:
 
 ```bash
