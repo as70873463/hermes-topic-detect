@@ -1,0 +1,33 @@
+diff --git a/run_agent.py b/run_agent.py
+index 255f9a6bd..8202734c4 100644
+--- a/run_agent.py
++++ b/run_agent.py
+@@ -11305,8 +11305,13 @@ class AIAgent:
+             )
+             _ctx_parts: list[str] = []
+             for r in _pre_results:
+-                if isinstance(r, dict) and r.get("context"):
+-                    _ctx_parts.append(str(r["context"]))
++                if isinstance(r, dict):
++                    # Allow plugins to override the model for this turn
++                    if r.get("model"):
++                        _plugin_model_override = str(r["model"])
++                        logger.info("pre_llm_call: model override → %s", _plugin_model_override)
++                    if r.get("context"):
++                        _ctx_parts.append(str(r["context"]))
+                 elif isinstance(r, str) and r.strip():
+                     _ctx_parts.append(r)
+             if _ctx_parts:
+@@ -11747,6 +11752,12 @@ class AIAgent:
+                 try:
+                     self._reset_stream_delivery_tracking()
+                     api_kwargs = self._build_api_kwargs(api_messages)
++
++                    # Apply plugin model override if set by pre_llm_call hook
++                    if '_plugin_model_override' in locals() and _plugin_model_override:
++                        logger.info("Applying plugin model override: %s → %s", api_kwargs.get('model'), _plugin_model_override)
++                        api_kwargs['model'] = _plugin_model_override
++
+                     if self._force_ascii_payload:
+                         _sanitize_structure_non_ascii(api_kwargs)
+                     if self.api_mode == "codex_responses":
