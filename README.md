@@ -61,6 +61,12 @@ cp -r /tmp/topic-detect/topic_detect/ ~/.hermes/plugins/topic_detect/
 
 ### Step 1: Enable the plugin in Hermes
 
+```bash
+hermes plugins enable topic_detect
+```
+
+### Manual Configuration
+
 Add `topic_detect` to the `plugins` section in `~/.hermes/config.yaml`:
 
 ```yaml
