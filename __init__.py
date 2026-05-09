@@ -444,17 +444,31 @@ def should_switch_topic(
 
 
 # ─── Plugin Hooks ────────────────────────────────────────────────
-
 def _pre_llm_call(**kwargs):
     history = kwargs.get("conversation_history") or []
     user_msg = kwargs.get("user_message") or ""
 
+    # Debug: log what we receive
+    logger.info("DEBUG kwargs keys: %s", list(kwargs.keys()))
+    logger.info("DEBUG user_message: %r", user_msg)
+    logger.info("DEBUG history type: %s, len: %s", type(history).__name__, len(history))
+    if history:
+        for i, h in enumerate(history[-3:]):
+            logger.info("DEBUG history[%d]: type=%s, keys=%s", i, type(h).__name__, h if isinstance(h, dict) else str(h)[:100])
+
+    # Build messages list
     messages = []
     for entry in history:
         if isinstance(entry, dict):
             messages.append(entry)
+        elif isinstance(entry, str):
+            messages.append({"role": "user", "content": entry})
     if isinstance(user_msg, str) and user_msg:
         messages.append({"role": "user", "content": user_msg})
+
+    logger.info("DEBUG final messages count: %d", len(messages))
+    for i, m in enumerate(messages[-5:]):
+        logger.info("DEBUG msg[%d]: role=%s content=%r", i, m.get("role"), str(m.get("content", ""))[:80])
 
     if not messages:
         return None
