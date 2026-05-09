@@ -6,6 +6,7 @@ A Hermes Agent plugin that automatically detects conversation topics and routes 
 
 - **Automatic topic detection** — classifies user messages into 12 topics using keyword signals and phrase boosts
 - **Model routing** — switches the active LLM model based on the detected topic
+- **Multi-provider support** — works with OpenRouter, Together AI, Groq, Anthropic, OpenAI, or local models
 - **Inertia logic** — requires 2 consecutive turns of the same topic before switching (prevents flapping)
 - **High-confidence bypass** — switches immediately when confidence ≥ 0.90
 - **Zero-confidence reset** — resets to default model when confidence is 0.00
@@ -14,8 +15,8 @@ A Hermes Agent plugin that automatically detects conversation topics and routes 
 
 ## Supported Topics
 
-| Topic | Model |
-|-------|-------|
+| Topic | Default Model |
+|-------|---------------|
 | programming | ring-2.6-1t |
 | finance | ring-2.6-1t |
 | science | ring-2.6-1t |
@@ -32,54 +33,123 @@ A Hermes Agent plugin that automatically detects conversation topics and routes 
 
 ## Installation
 
-### One-click install (recommended)
+### Universal version (English keywords only)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-topic-detect/main/install.sh | bash
 ```
 
-### Manual install
-
-1. Copy the `topic_detect/` directory into your Hermes plugins folder:
+### Thai version (English + Thai keywords)
 
 ```bash
-cp -r topic_detect/ ~/.hermes/plugins/topic_detect/
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-topic-detect/thai/install-thai.sh | bash
 ```
 
-2. Make sure your `~/.hermes/config.yaml` has the topic_detect section:
+### Manual install
+
+```bash
+# Universal
+git clone --depth 1 https://github.com/ShockShoot/hermes-topic-detect.git /tmp/topic-detect
+cp -r /tmp/topic-detect/topic_detect/ ~/.hermes/plugins/topic_detect/
+
+# Thai version
+git clone --depth 1 --branch thai https://github.com/ShockShoot/hermes-topic-detect.git /tmp/topic-detect
+cp -r /tmp/topic-detect/topic_detect/ ~/.hermes/plugins/topic_detect/
+```
+
+## Configuration
+
+Add to your `~/.hermes/config.yaml`:
+
+### Simple (single model per topic — works with any provider)
 
 ```yaml
 topic_detect:
   enabled: true
-  default: openrouter/owl-alpha
+  provider: openrouter
+  default: owl-alpha
   topics:
     programming:
-      model: inclusionai/ring-2.6-1t:free
+      model: ring-2.6-1t:free
     finance:
-      model: inclusionai/ring-2.6-1t:free
+      model: ring-2.6-1t:free
     science:
-      model: inclusionai/ring-2.6-1t:free
+      model: ring-2.6-1t:free
     academia:
-      model: inclusionai/ring-2.6-1t:free
+      model: ring-2.6-1t:free
     health:
-      model: openrouter/owl-alpha
+      model: owl-alpha
     legal:
-      model: openrouter/owl-alpha
+      model: owl-alpha
     seo:
-      model: openrouter/owl-alpha
+      model: owl-alpha
     translation:
-      model: openrouter/owl-alpha
+      model: owl-alpha
     technology:
-      model: openrouter/owl-alpha
+      model: owl-alpha
     marketing:
-      model: openrouter/owl-alpha
+      model: owl-alpha
     roleplay:
-      model: inclusionai/cobuddy:free
+      model: cobuddy:free
     trivia:
-      model: inclusionai/cobuddy:free
+      model: cobuddy:free
 ```
 
-3. Restart Hermes:
+### Advanced (per-provider model mapping)
+
+Use this if you or other users run the plugin with different LLM providers:
+
+```yaml
+topic_detect:
+  enabled: true
+  provider: openrouter
+  default: owl-alpha
+  topics:
+    programming:
+      model: ring-2.6-1t:free
+      models:
+        openrouter: ring-2.6-1t:free
+        together: meta-llama/Llama-3.1-8B-Instruct-Turbo
+        groq: llama-3.1-8b-instant
+        anthropic: claude-sonnet-4-20250514
+        openai: gpt-4o-mini
+        local: qwen2.5-coder-7b-instruct
+    finance:
+      model: ring-2.6-1t:free
+      models:
+        openrouter: ring-2.6-1t:free
+        together: meta-llama/Llama-3.1-70B-Instruct-Turbo
+        groq: llama-3.1-70b-versatile
+```
+
+**Model resolution order:**
+1. `models.<provider>` — if `provider` field is set and per-provider mapping exists
+2. `model` — generic fallback (works for all providers)
+3. `default` — global fallback
+
+### Provider Credentials
+
+Credentials are read from `~/.hermes/.env`. The plugin looks for these environment variables based on the `provider` field:
+
+| Provider | API Key Env Var | Base URL Env Var | Default Base URL |
+|----------|-----------------|------------------|------------------|
+| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` |
+| Together AI | `TOGETHER_API_KEY` | `TOGETHER_BASE_URL` | `https://api.together.xyz/v1` |
+| Groq | `GROQ_API_KEY` | `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` |
+| Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` |
+| OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
+| Local | *(none needed)* | `LOCAL_BASE_URL` | `http://localhost:8000/v1` |
+
+Example `.env`:
+
+```env
+OPENROUTER_API_KEY=sk-or-v1-xxx
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+```
+
+If a base URL env var is not set, the default is used automatically.
+
+Then restart Hermes:
 
 ```bash
 sudo systemctl restart hermes
@@ -134,8 +204,10 @@ For a keyword-free approach, the plan is to use an LLM-based fallback that reads
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | `false` | Enable/disable the plugin |
-| `default` | `openrouter/owl-alpha` | Fallback model when no topic is detected |
-| `topics.<name>.model` | — | Model to route to when this topic is detected |
+| `default` | `owl-alpha` | Fallback model when no topic is detected |
+| `provider` | `""` | LLM provider name for per-provider model mapping |
+| `topics.<name>.model` | — | Generic model for this topic (any provider) |
+| `topics.<name>.models.<provider>` | — | Provider-specific model override |
 
 ## Monitoring
 
@@ -158,7 +230,7 @@ Expected output:
 topic_detect/
 ├── __init__.py      # Plugin hooks (pre_llm_call, on_session_start)
 ├── classifier.py    # Topic classification logic and keyword signals
-├── config_reader.py # YAML config parsing
+├── config_reader.py # YAML config parsing with multi-provider support
 └── README.md        # This file
 ```
 
