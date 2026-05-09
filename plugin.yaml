@@ -4,7 +4,7 @@ description: >
   Automatically switch the active model based on detected conversation topic.
   Reads topic_detect block from config.yaml. Appends model signature on topic responses.
 author: custom
-hooks:
+provides_hooks:
   - pre_llm_call
   - on_session_start
   - on_session_reset
