@@ -40,9 +40,12 @@ class TopicDetectConfig:
     agents_file: str | None
 
 
-def _expand_env(value: Any) -> Any:
+def _expand_env(value: Any, *, none_if_unresolved: bool = False) -> Any:
     if isinstance(value, str):
-        return os.path.expandvars(value)
+        expanded = os.path.expandvars(value)
+        if none_if_unresolved and expanded == value and "${" in value:
+            return None
+        return expanded
 
     return value
 
@@ -52,7 +55,7 @@ def _target_from_dict(data: dict[str, Any]) -> Target:
         provider=str(data["provider"]),
         model=str(data["model"]),
         base_url=_expand_env(data.get("base_url")),
-        api_key=_expand_env(data.get("api_key")),
+        api_key=_expand_env(data.get("api_key"), none_if_unresolved=True),
         system_prompt=data.get("system_prompt"),
     )
 
@@ -110,7 +113,8 @@ def load_config() -> TopicDetectConfig:
         semantic.get(
             "api_key",
             "${OPENROUTER_API_KEY}",
-        )
+        ),
+        none_if_unresolved=True,
     )
 
     signature_enabled = bool(
