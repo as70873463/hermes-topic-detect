@@ -1,10 +1,6 @@
 name: topic_detect
-version: "1.0.0"
-description: >
-  Automatically switch the active model based on detected conversation topic.
-  Reads topic_detect block from config.yaml. Appends model signature on topic responses.
-author: custom
-provides_hooks:
+version: 1.0.0
+description: Dynamic topic-based runtime model router for Hermes
+entrypoint: topic_detect
+hooks:
   - pre_llm_call
-  - on_session_start
-  - on_session_reset
