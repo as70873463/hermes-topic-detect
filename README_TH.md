@@ -116,6 +116,7 @@ reads runtime_override: ✅
 applies model override: ✅
 applies provider override: ✅
 applies system_prompt override: ✅
+uses switch_model runtime: ✅
 handles response_suffix: ✅
 ```
 
@@ -262,9 +263,9 @@ runtime_override = {
 
 สิ่งนี้ทำให้ model routing + persona routing ถูกควบคุมจาก decision layer เดียวกัน
 
-ถ้าไม่มี topic target ที่ match, ARC จะคืน `runtime_override` ว่าง และปล่อยให้ Hermes ใช้ `model:` หลักต่อไป ตอนนี้ ARC ไม่มี `topic_detect.default` แยกแล้ว เพราะ default ของ plugin อาจตีกับ main default model ของ Hermes ได้
+ถ้าไม่มี topic target ที่ match, ARC จะคืน `restore_main: true` แทนการเลือก model ของ plugin เอง compatibility patch จะ restore runtime หลักเดิมของ Hermes ใน session นั้น ตอนนี้ ARC ไม่มี `topic_detect.default` แยกแล้ว เพราะ default ของ plugin อาจตีกับ main default model ของ Hermes ได้
 
-> Compatibility note: model/provider/base_url/api_key support ขึ้นกับ Hermes runtime version ส่วน `system_prompt` และ `response_suffix` ต้องใช้ `run_agent.py` ที่ compatible หรือถูก patch แล้ว ใช้ checker ด้านบนเพื่อตรวจสอบ
+> Compatibility note: ARC compatibility รุ่นใหม่ใช้ provider resolver ของ Hermes และเรียก `switch_model()` โดยตรง เพื่อรองรับ cross-provider routing, การเปลี่ยน `api_mode`, OAuth/subscriber credentials, provider-specific headers, client rebuild และ context-compressor metadata ใช้ checker ด้านบนเพื่อตรวจสอบ
 
 ---
 

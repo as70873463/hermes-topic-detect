@@ -197,7 +197,7 @@ def _pre_llm_call_impl(**kwargs):
             len(agent_prompt),
         )
 
-    updates = _runtime_updates(target) if target else {}
+    updates = _runtime_updates(target) if target else {"restore_main": True}
 
     if _LAST_RUNTIME == updates:
         logger.info(

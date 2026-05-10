@@ -144,6 +144,11 @@ def check_runtime_override_handling(content: str) -> dict:
         "_plugin_system_prompt" in content
         or re.search(r'runtime_override.*system_prompt', content, re.DOTALL)
     )
+    results["uses_switch_model_runtime"] = bool(
+        "switch_model(" in content
+        and "_arc_resolve_provider_client" in content
+        and "restore_main" in content
+    )
     results["handles_response_suffix"] = bool(
         "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content
         or re.search(r'response_suffix', content)
@@ -159,6 +164,7 @@ def needs_patch(results: dict) -> bool:
         "applies_model_override",
         "applies_provider_override",
         "applies_system_prompt_override",
+        "uses_switch_model_runtime",
         "handles_response_suffix",
     ]
     return not all(results.get(k, False) for k in required)
@@ -223,38 +229,123 @@ def apply_patch(path: Path, content: str) -> str:
                 _plugin_user_context = "\\n\\n".join(_ctx_parts)
 
             # HERMES_ARC_PATCH: apply runtime routing overrides from plugins.
+            # Use Hermes' own provider resolver + switch_model() instead of
+            # mutating self.provider/self.model directly.  This preserves
+            # provider-specific api_mode, OAuth/subscriber credentials,
+            # headers, context-compressor metadata, and client rebuild logic.
             if isinstance(_runtime_override, dict) and _runtime_override:
+                _arc_restore_main = bool(_runtime_override.get("restore_main"))
                 _arc_model = _runtime_override.get("model")
                 _arc_provider = _runtime_override.get("provider")
                 _arc_base_url = _runtime_override.get("base_url")
                 _arc_api_key = _runtime_override.get("api_key")
+                _arc_api_mode = _runtime_override.get("api_mode")
                 _arc_system_prompt = _runtime_override.get("system_prompt")
-                if _arc_model:
-                    self.model = str(_arc_model)
-                if _arc_provider:
-                    self.provider = str(_arc_provider)
-                if _arc_base_url:
-                    self.base_url = str(_arc_base_url).rstrip("/")
-                    if hasattr(self, "_client_kwargs"):
-                        self._client_kwargs["base_url"] = self.base_url
-                if _arc_api_key:
-                    self.api_key = str(_arc_api_key)
-                    if hasattr(self, "_client_kwargs"):
-                        self._client_kwargs["api_key"] = self.api_key
-                if (_arc_base_url or _arc_api_key) and hasattr(self, "_replace_primary_openai_client"):
+
+                if not hasattr(self, "_hermes_arc_base_runtime"):
+                    self._hermes_arc_base_runtime = {
+                        "model": getattr(self, "model", ""),
+                        "provider": getattr(self, "provider", ""),
+                        "base_url": getattr(self, "base_url", ""),
+                        "api_key": getattr(self, "api_key", ""),
+                        "api_mode": getattr(self, "api_mode", ""),
+                    }
+
+                if _arc_restore_main:
+                    _arc_base = getattr(self, "_hermes_arc_base_runtime", None) or {}
+                    _base_model = _arc_base.get("model")
+                    _base_provider = _arc_base.get("provider")
+                    if _base_model and _base_provider:
+                        if hasattr(self, "switch_model"):
+                            self.switch_model(
+                                _base_model,
+                                _base_provider,
+                                api_key=_arc_base.get("api_key", ""),
+                                base_url=_arc_base.get("base_url", ""),
+                                api_mode=_arc_base.get("api_mode", ""),
+                            )
+                        else:
+                            self.model = str(_base_model)
+                            self.provider = str(_base_provider)
+                            if _arc_base.get("base_url"):
+                                self.base_url = str(_arc_base.get("base_url")).rstrip("/")
+                            if _arc_base.get("api_key"):
+                                self.api_key = str(_arc_base.get("api_key"))
+                        logger.info(
+                            "hermes-arc: restored main runtime provider=%s model=%s",
+                            getattr(self, "provider", ""),
+                            getattr(self, "model", ""),
+                        )
+                elif _arc_model or _arc_provider or _arc_base_url or _arc_api_key:
+                    _target_provider = str(_arc_provider or getattr(self, "provider", "") or "auto")
+                    _target_model = str(_arc_model or getattr(self, "model", ""))
+                    _resolved_model = _target_model
+                    _resolved_api_key = str(_arc_api_key or "")
+                    _resolved_base_url = str(_arc_base_url or "")
+                    _resolved_api_mode = str(_arc_api_mode or "")
+
                     try:
-                        if hasattr(self, "_apply_client_headers_for_base_url"):
-                            self._apply_client_headers_for_base_url(self.base_url)
-                        self._replace_primary_openai_client(reason="hermes_arc_runtime_override")
-                    except Exception as _arc_client_error:
-                        logger.debug("hermes-arc: client refresh skipped: %s", _arc_client_error)
+                        from agent.auxiliary_client import resolve_provider_client as _arc_resolve_provider_client
+                        _arc_client, _arc_client_model = _arc_resolve_provider_client(
+                            _target_provider,
+                            model=_target_model,
+                            raw_codex=True,
+                            explicit_base_url=_resolved_base_url or None,
+                            explicit_api_key=_resolved_api_key or None,
+                            api_mode=_resolved_api_mode or None,
+                            main_runtime=getattr(self, "_primary_runtime", None),
+                        )
+                        if _arc_client is not None:
+                            _resolved_model = str(_arc_client_model or _target_model)
+                            _resolved_api_key = str(getattr(_arc_client, "api_key", "") or _resolved_api_key)
+                            _resolved_base_url = str(getattr(_arc_client, "base_url", "") or _resolved_base_url).rstrip("/")
+                    except Exception as _arc_resolve_error:
+                        logger.debug("hermes-arc: provider resolution skipped: %s", _arc_resolve_error)
+
+                    if not _resolved_api_mode:
+                        try:
+                            from hermes_cli.providers import determine_api_mode as _arc_determine_api_mode
+                            _resolved_api_mode = _arc_determine_api_mode(_target_provider, _resolved_base_url)
+                        except Exception:
+                            _resolved_api_mode = getattr(self, "api_mode", "")
+
+                    if hasattr(self, "switch_model"):
+                        self.switch_model(
+                            _resolved_model,
+                            _target_provider,
+                            api_key=_resolved_api_key,
+                            base_url=_resolved_base_url,
+                            api_mode=_resolved_api_mode,
+                        )
+                    else:
+                        self.model = str(_resolved_model)
+                        self.provider = str(_target_provider)
+                        if _resolved_base_url:
+                            self.base_url = _resolved_base_url
+                        if _resolved_api_key:
+                            self.api_key = _resolved_api_key
+                        if hasattr(self, "_client_kwargs"):
+                            if _resolved_base_url:
+                                self._client_kwargs["base_url"] = self.base_url
+                            if _resolved_api_key:
+                                self._client_kwargs["api_key"] = self.api_key
+                        if (_resolved_base_url or _resolved_api_key) and hasattr(self, "_replace_primary_openai_client"):
+                            try:
+                                if hasattr(self, "_apply_client_headers_for_base_url"):
+                                    self._apply_client_headers_for_base_url(self.base_url)
+                                self._replace_primary_openai_client(reason="hermes_arc_runtime_override")
+                            except Exception as _arc_client_error:
+                                logger.debug("hermes-arc: client refresh skipped: %s", _arc_client_error)
+
+                    logger.info(
+                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",
+                        getattr(self, "provider", ""),
+                        getattr(self, "model", ""),
+                        getattr(self, "api_mode", ""),
+                    )
+
                 if _arc_system_prompt:
                     _plugin_system_prompt = str(_arc_system_prompt)
-                logger.info(
-                    "hermes-arc: runtime_override applied provider=%s model=%s",
-                    getattr(self, "provider", ""),
-                    getattr(self, "model", ""),
-                )
 """
         if ctx_old not in new_content:
             print("⚠️  Could not locate context assembly — patch skipped")
@@ -323,6 +414,7 @@ def verify_patch(path: Path) -> bool:
         "response_suffix append": "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content,
         "pre_llm_call hook intact": "pre_llm_call" in content,
         "runtime_override handling": "runtime_override" in content,
+        "switch_model runtime routing": "_arc_resolve_provider_client" in content and "restore_main" in content,
     }
 
     all_ok = True
@@ -413,7 +505,7 @@ def main():
 
     if all_ok:
         print("✅ run_agent.py is fully compatible with Hermes ARC")
-        print("   No patching needed — runtime_override is handled natively")
+        print("   runtime_override is handled with switch_model-compatible routing")
         sys.exit(0)
 
     # ── Patch mode ───────────────────────────────────────────────────────

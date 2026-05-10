@@ -119,6 +119,7 @@ reads runtime_override: ✅
 applies model override: ✅
 applies provider override: ✅
 applies system_prompt override: ✅
+uses switch_model runtime: ✅
 handles response_suffix: ✅
 ```
 
@@ -265,9 +266,9 @@ runtime_override = {
 
 This powers model routing + persona routing from the same decision layer.
 
-If no configured topic target matches, ARC returns an empty `runtime_override` and Hermes keeps using the main `model:` config. ARC no longer defines a separate `topic_detect.default` model, because that can conflict with the user's primary Hermes model.
+If no configured topic target matches, ARC returns `restore_main: true` rather than a topic-specific model. The compatibility patch restores Hermes' original main runtime for the session. ARC no longer defines a separate `topic_detect.default` model, because that can conflict with the user's primary Hermes model.
 
-> Compatibility note: model/provider/base_url/api_key support depends on Hermes runtime version. `system_prompt` and `response_suffix` require a compatible or patched `run_agent.py`. Use the checker below.
+> Compatibility note: modern ARC compatibility uses Hermes' own provider resolver plus `switch_model()`. This is required for cross-provider routing, `api_mode` changes, OAuth/subscriber credentials, provider-specific headers, client rebuilds, and context-compressor metadata. Use the checker below.
 
 ---
 
