@@ -1,90 +1,174 @@
-# Hermes ARC — Adaptive Routing Core
+# ⚡ Hermes ARC — Adaptive Routing Core
 
-> **Product name:** Hermes ARC (Adaptive Routing Core)
-> **Internal plugin name:** `topic_detect` (kept for backward compatibility)
-> **Config key:** `topic_detect:` (do NOT change)
+> **Smart multi-agent orchestration for Hermes Agent.**<br>
+> Routes conversations by topic — switching models, personas, and prompts in real time, with human-like contextual inertia.
 
-Hermes ARC is an adaptive conversational multi-agent orchestration layer for
-[Hermes Agent](https://hermes-agent.nousresearch.com). It routes conversations
-by topic — dynamically switching models, personas, and system prompts in
-real-time, with human-like contextual inertia instead of jarring instant swaps.
+![License](https://img.shields.io/badge/license-MIT-green)
+![Hermes Plugin](https://img.shields.io/badge/Hermes-plugin-blue)
+![Status](https://img.shields.io/badge/status-v2.1--beta-orange)
 
----
+**Product name:** Hermes ARC (Adaptive Routing Core)<br>
+**Internal plugin name:** `topic_detect` — kept for backward compatibility<br>
+**Config key:** `topic_detect:` — do **not** rename yet
 
-## Architecture
-
-```
-User Input
-   ↓
-Keyword Classifier (fast, deterministic)
-   ↓
-Semantic Router (LLM-based fallback)
-   ↓
-Smart Inertia Engine (confidence accumulation)
-   ↓
-Topic State → Model Routing + Persona Injection
-   ↓
-Runtime Override (provider / model / system_prompt)
-   ↓
-Signature Layer (transparency tag)
-```
+Hermes ARC is an adaptive conversational orchestration layer for [Hermes Agent](https://hermes-agent.nousresearch.com). It began as a topic detector, but has evolved into a lightweight runtime for routing conversations across models, personas, prompts, and future tool/memory policies.
 
 ---
 
-## Features
+## 🤔 The Problem
 
-### Runtime Model Routing
-Per-topic provider and model switching via `config.yaml`. When the active topic
-changes, Hermes loads the corresponding model, provider, base_url, and API key
-on the fly.
+Most multi-agent systems switch models abruptly. One message goes to a coding expert, the next is silently handed off to another model mid-thought. That feels jarring, incoherent, and breaks conversational flow.
 
-### Smart Inertia Engine
-Does NOT switch topics instantly. Instead it accumulates confidence across
-turns until a threshold is reached:
+Hermes ARC fixes this by classifying intent, accumulating confidence across turns, and only committing to a route change when the signal is strong enough. The result is routing that feels natural instead of mechanical.
 
-- `threshold = max(1.5, inertia * 0.8)`
-- Same topic reinforces → no switch
-- Competing topic accumulates score over turns
-- Switch only fires when accumulated score ≥ threshold
+---
 
-Result: **smooth conversational continuity** instead of ping-pong routing.
+## ✨ Features
 
-### Hybrid Routing
-Three modes:
+### 🔀 Runtime Model Routing
+
+Per-topic provider, model, base URL, and API key switching via `config.yaml`. When the active topic changes, Hermes loads the correct model on the fly — no manual model picker, no restart for each topic.
+
+Example:
+
+```yaml
+topic_detect:
+  topics:
+    programming:
+      provider: openrouter
+      model: inclusionai/ring-2.6-1t:free
+
+    marketing:
+      provider: openrouter
+      model: openrouter/owl-alpha
+```
+
+### 🧠 Smart Inertia Engine
+
+Topics do **not** switch instantly. Confidence accumulates across turns:
+
+```txt
+threshold = max(1.5, inertia × 0.8)
+```
+
+Behavior:
+
+- Same topic reinforces the current route.
+- Competing topics accumulate score over turns.
+- Switch fires only when accumulated score reaches the threshold.
+
+Example:
+
+```txt
+finance 0.82
+finance 0.91
+total = 1.73
+→ switch
+```
+
+Result: smooth continuity instead of ping-pong routing.
+
+Main file: `state.py`
+
+### ⚡ Hybrid Routing
 
 | Mode | Behavior |
 |------|----------|
-| `keyword` | Fastest. Pure keyword matching. |
-| `semantic` | Smartest. LLM-based classification via OpenRouter. |
-| `hybrid` (recommended) | Keyword first. Falls back to semantic when confidence is low. |
+| `keyword` | Fastest — deterministic keyword/phrase scoring. |
+| `semantic` | Smartest — LLM-based classification via OpenRouter. |
+| `hybrid` | Recommended — keyword first, semantic fallback when confidence is low. |
 
-### Persona Injection (AGENTS.md)
-Topic-specific expert personas loaded from `~/.hermes/plugins/topic_detect/AGENTS.md`.
-The active persona is injected as `system_prompt` at runtime — no manual prompt
-engineering needed.
+Preferred production mode:
 
-Supported topics: `programming`, `finance`, `marketing`, `translation`, `legal`,
-`health`, `roleplay`, `seo`, `science`, `technology`, `academia`, `trivia`.
-
-### Signature Transparency Layer
-Appends a compact routing tag to each response:
-
+```txt
+keyword first → semantic fallback
 ```
+
+### 🎭 Persona Injection
+
+Topic-specific expert personas are loaded from `AGENTS.md` and injected as `system_prompt` at runtime.
+
+Supported topics:
+
+```txt
+programming · finance · marketing · translation · legal · health
+roleplay · seo · science · technology · academia · trivia
+```
+
+Example persona:
+
+```md
+# finance
+
+You are a careful finance analyst.
+
+Rules:
+- Focus on downside risk.
+- Separate facts from opinions.
+- Avoid emotional investing advice.
+```
+
+### 🔍 Signature Transparency Layer
+
+Each response can include a compact routing tag so you can see what ARC is doing under the hood:
+
+```txt
 - ring-2.6-1t [programming]
 - owl-alpha [marketing]
-- ring-2.6-1t [programming → finance]   ← transition in progress
+- ring-2.6-1t [programming → finance]
 ```
 
-Configurable via `signature.enabled`.
+Enable or disable it with:
 
-### Conversational Continuity
-During topic transitions, both the current and candidate topics are visible
-in the signature. The model only commits to the new topic after inertia
-threshold is met — keeping the conversation coherent.
+```yaml
+topic_detect:
+  signature:
+    enabled: true
+```
+
+### 🧩 Runtime Prompt Injection
+
+ARC can return a runtime override containing:
+
+```python
+runtime_override = {
+    "provider": "openrouter",
+    "model": "inclusionai/ring-2.6-1t:free",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key": "env:OPENROUTER_API_KEY",
+    "system_prompt": "You are an expert software engineer...",
+}
+```
+
+This powers model routing + persona routing from the same decision layer.
+
+> Compatibility note: model/provider/base_url/api_key support depends on Hermes runtime version. `system_prompt` and `response_suffix` require a compatible or patched `run_agent.py`. Use the checker below.
 
 ---
 
-## Installation
+## 🏗 Architecture
+
+```txt
+User Input
+   ↓
+Keyword Classifier       ← fast, deterministic
+   ↓
+Semantic Router          ← LLM-based fallback via OpenRouter
+   ↓
+Smart Inertia Engine     ← confidence accumulation across turns
+   ↓
+Topic State              → model routing + persona selection
+   ↓
+Runtime Override         → provider / model / base_url / api_key / system_prompt
+   ↓
+Signature Layer          → transparency tag appended to response
+```
+
+Current classification: this is no longer only *topic detection*. Hermes ARC is closer to an adaptive conversational orchestration framework — a lightweight multi-agent runtime for models, personas, tools, memory, and behavior.
+
+---
+
+## 🚀 Installation
 
 ### One-Click Install
 
@@ -92,31 +176,42 @@ threshold is met — keeping the conversation coherent.
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
 ```
 
+The installer copies the plugin into:
+
+```txt
+~/.hermes/plugins/topic_detect
+```
+
 ### Manual Install
 
 ```bash
-# 1. Copy plugin files
+# 1. Clone the repo
+git clone https://github.com/ShockShoot/hermes-arc.git
+cd hermes-arc
+
+# 2. Copy plugin files
 mkdir -p ~/.hermes/plugins/topic_detect
 cp __init__.py state.py classifier.py semantic.py config.py \
    agent_loader.py signature.py patch_run_agent.py AGENTS.md plugin.yaml README.md \
    ~/.hermes/plugins/topic_detect/
 
-# 2. Enable plugin
+# 3. Enable plugin
 hermes plugins enable topic_detect
 
-# 3. Restart
-hermes restart
+# 4. Restart Hermes gateway, or exit/relaunch Hermes CLI
+hermes gateway restart
 ```
 
 ### Verify Installation
 
 ```bash
+hermes plugins list | grep topic_detect
 hermes logs | grep topic_detect
 ```
 
-Expected output:
+Possible log output:
 
-```
+```txt
 topic_detect: loaded
 topic_detect: switching provider=openrouter model=inclusionai/ring-2.6-1t:free
 topic_detect: signature=- ring-2.6-1t [programming]
@@ -124,11 +219,45 @@ topic_detect: signature=- ring-2.6-1t [programming]
 
 ---
 
-## Configuration
+## ✅ Runtime Compatibility Check
+
+ARC includes a checker/patcher for Hermes core runtime override support:
+
+```bash
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
+```
+
+Expected fully-compatible result:
+
+```txt
+pre_llm_call hook: ✅
+reads runtime_override: ✅
+applies model override: ✅
+applies provider override: ✅
+applies system_prompt override: ✅
+handles response_suffix: ✅
+```
+
+If `system_prompt` or `response_suffix` are missing, model routing may still work, but persona injection/signature behavior will be limited until `run_agent.py` is patched.
+
+To patch supported installs:
+
+```bash
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --patch
+```
+
+Then restart Hermes.
+
+---
+
+## ⚙️ Configuration
 
 Full example (`~/.hermes/config.yaml`):
 
 ```yaml
+plugins:
+  - topic_detect
+
 topic_detect:
   enabled: true
   inertia: 2
@@ -191,66 +320,151 @@ topic_detect:
       model: baidu/cobuddy:free
 ```
 
-### Routing Mode Logic
+Secrets should live in `~/.hermes/.env`, not directly in `config.yaml`. Add your OpenRouter key there under the standard `OPENROUTER_API_KEY` variable name.
 
-```
-if mode == keyword:
+---
+
+## 🧭 Routing Mode Logic
+
+```python
+if mode == "keyword":
     result = keyword_classify(messages)
 
-if mode == semantic:
+elif mode == "semantic":
     result = semantic_classify(messages)
 
-if mode == hybrid:
+elif mode == "hybrid":
     result = keyword_classify(messages)
     if result.confidence < semantic.min_confidence:
-        semantic = semantic_classify(messages)
-        if semantic.confidence > result.confidence:
-            result = semantic
+        semantic_result = semantic_classify(messages)
+        if semantic_result.confidence > result.confidence:
+            result = semantic_result
 
 state.decide(result.topic, result.confidence, inertia, min_confidence)
 ```
 
 ---
 
-## Plugin Files
+## 📁 Plugin Files
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Plugin entry point. Registers `pre_llm_call` hook. |
-| `classifier.py` | Keyword-based topic classifier with weighted scoring and recency boost. |
+| `__init__.py` | Plugin entry point. Registers the `pre_llm_call` hook and returns runtime overrides. |
+| `classifier.py` | Keyword classifier with weighted scoring, phrase boosts, and recency weighting. |
 | `semantic.py` | LLM-based semantic classifier via OpenRouter API. |
-| `state.py` | Smart Inertia Engine — confidence accumulation and topic switching logic. |
-| `config.py` | Loads `topic_detect` section from `config.yaml` into typed dataclasses. |
-| `agent_loader.py` | Parses `AGENTS.md` → topic-to-persona-prompt mapping. |
+| `state.py` | Smart Inertia Engine — confidence accumulation and topic switching. |
+| `config.py` | Loads `topic_detect:` config into typed dataclasses. |
+| `agent_loader.py` | Parses `AGENTS.md` into topic-to-persona mappings. |
 | `signature.py` | Builds the transparency signature tag. |
-| `patch_run_agent.py` | Local compatibility patcher for Hermes core runtime override support. |
-| `AGENTS.md` | Persona definitions for all 12 topics. |
+| `patch_run_agent.py` | Compatibility checker/patcher for Hermes core runtime override support. |
+| `AGENTS.md` | Persona definitions for all supported topics. |
 | `plugin.yaml` | Plugin metadata. |
-| `README.md` | This file. |
+| `README.md` | Project documentation. |
 
 ---
 
-## Environment Variables
+## 🔑 Environment Variables
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `OPENROUTER_API_KEY` | Yes | API key for OpenRouter (semantic + topic models) |
+| `OPENROUTER_API_KEY` | Required for semantic mode and OpenRouter topic models | API key for OpenRouter. |
 
-Keys are read from `~/.hermes/.env` — never hardcode them in config files.
+Store keys in `~/.hermes/.env`. Never commit secrets, tokens, logs, cache files, or `.env`.
 
 ---
 
-## Roadmap
+## 🛠 Troubleshooting
+
+### Plugin not loading
+
+```bash
+hermes plugins list | grep topic_detect
+hermes logs | grep topic_detect
+```
+
+Check that both are true:
+
+```yaml
+plugins:
+  - topic_detect
+
+topic_detect:
+  enabled: true
+```
+
+Then restart Hermes gateway or relaunch the CLI:
+
+```bash
+hermes gateway restart
+```
+
+### Topic always stays on default
+
+- Lower `min_confidence` temporarily, for example `0.3`.
+- Use `routing_mode: semantic` for more nuanced classification.
+- Check logs for classifier confidence and selected topic.
+
+### Unexpected topic switches
+
+- Raise `inertia`, for example `3` or `4`.
+- Raise `min_confidence` if noisy keyword matches are causing false positives.
+- Prefer `hybrid` mode over pure `semantic` if you need deterministic behavior.
+
+### Semantic classifier failing
+
+- Verify `OPENROUTER_API_KEY` exists in `~/.hermes/.env`.
+- Confirm the semantic model is available on your OpenRouter account.
+- Try a different semantic classifier model in `topic_detect.semantic.model`.
+
+### Persona injection not working
+
+Run:
+
+```bash
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
+```
+
+If `system_prompt override` is not supported, patch Hermes core or use ARC only for model routing/signature behavior.
+
+---
+
+## 🗺 Roadmap
 
 | Priority | Feature | Status |
 |----------|---------|--------|
-| P1 | Persistent state (`~/.hermes/state/topic_state.json`) | Planned |
-| P2 | Weighted multi-topic routing (mixed-domain) | Planned |
+| P1 | Persistent state across sessions (`~/.hermes/state/topic_state.json`) | Planned |
+| P2 | Weighted multi-topic routing for mixed-domain conversations | Planned |
 | P3 | Topic-aware tool sandboxing | Planned |
-| P4 | Cost-aware model selection | Planned |
+| P4 | Cost-aware routing by complexity, latency, token budget, and reasoning need | Planned |
+
+Future ecosystem modules may include:
+
+- Hermes ARC Runtime
+- Hermes ARC Memory
+- Hermes ARC Agents
+- Hermes ARC Router
+- Hermes ARC Tools
+- Hermes ARC Studio
 
 ---
 
-## License
+## 🧱 Design Principles
 
-MIT — same as [Hermes Agent](https://github.com/nousresearch/hermes-agent).
+- Keep `Hermes ARC` as the product/platform name.
+- Keep `topic_detect` as the internal plugin name until a coordinated migration exists.
+- Prefer smooth routing transitions over instant switches.
+- Make routing visible and debuggable through signatures.
+- Keep secrets outside config and outside git.
+- Favor incremental compatibility with Hermes core over risky rewrites.
+
+---
+
+## 📄 License
+
+MIT — same as [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+
+---
+
+<div align="center">
+  <sub>Built for <a href="https://hermes-agent.nousresearch.com">Hermes Agent</a> · Maintained by <a href="https://github.com/ShockShoot">ShockShoot</a></sub>
+</div>
