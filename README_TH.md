@@ -31,13 +31,16 @@ Folderที่อยู่ Plugin:
 ~/.hermes/plugins/topic_detect
 ```
 
-ระหว่างติดตั้ง ARC จะตรวจว่า Hermes `run_agent.py` รองรับ runtime override สำหรับ `system_prompt` และ `response_suffix` หรือยัง ถ้ายังไม่รองรับ installer จะถามก่อน patch Hermes core และสร้าง backup แบบ timestamp ไว้ก่อนเสมอ
+ระหว่างติดตั้ง ARC จะหา location ของ Hermes `run_agent.py` ก่อน แล้วค่อยตรวจว่า runtime รองรับ override สำหรับ `system_prompt` และ `response_suffix` หรือยัง ถ้าเจอ Hermes runtime มากกว่า 1 ตัว installer จะให้เลือกก่อนว่าจะ check/patch ตัวไหน ถ้ายังไม่รองรับจะถามก่อน patch Hermes core และสร้าง backup แบบ timestamp ไว้ก่อนเสมอ
 
 สำหรับ unattended install:
 
 ```bash
 # Auto-patch runtime ถ้าจำเป็น
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime
+
+# Auto-patch runtime เฉพาะ path กรณีมีหลาย Hermes installs
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime --run-agent-path /path/to/run_agent.py
 
 # ห้าม patch runtime
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --no-patch-runtime
@@ -84,10 +87,17 @@ topic_detect: signature=- ring-2.6-1t [programming]
 
 ARC มี checker/patcher สำหรับตรวจ runtime override support ของ Hermes core โดย installer จะรัน check ให้อัตโนมัติ และถามก่อน patch ถ้าพบว่ายังไม่ compatible
 
-ตรวจเองได้ด้วย:
+Manual discovery/check:
 
 ```bash
+# list Hermes runtime ที่ค้นเจอ
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --list
+
+# check runtime ที่เลือกอัตโนมัติ หรือถามถ้าเจอหลายตัว
 python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
+
+# check runtime เฉพาะ path
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check --path /path/to/run_agent.py
 ```
 
 ผลลัพธ์ที่ควรได้เมื่อ compatible ครบ:
@@ -106,7 +116,11 @@ handles response_suffix: ✅
 Patch runtime ที่รองรับได้ด้วย:
 
 ```bash
+# auto-select/prompt
 python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --patch
+
+# หรือ patch runtime เฉพาะ path
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --patch --path /path/to/run_agent.py
 ```
 
 จากนั้น restart Hermes
