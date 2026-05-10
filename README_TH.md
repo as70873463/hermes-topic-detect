@@ -31,13 +31,21 @@ Folderที่อยู่ Plugin:
 ~/.hermes/plugins/topic_detect
 ```
 
-ระหว่างติดตั้ง ARC จะหา location ของ Hermes `run_agent.py` ก่อน แล้วค่อยตรวจว่า runtime รองรับ override สำหรับ `system_prompt` และ `response_suffix` หรือยัง ถ้าเจอ Hermes runtime มากกว่า 1 ตัว installer จะให้เลือกก่อนว่าจะ check/patch ตัวไหน ถ้ายังไม่รองรับจะถามก่อน patch Hermes core และสร้าง backup แบบ timestamp ไว้ก่อนเสมอ
+ระหว่างติดตั้ง ARC จะอัปเดต `~/.hermes/config.yaml` ให้มี `plugins:` และ block `topic_detect:` ที่จำเป็นครบถ้ายังไม่มี โดยจะไม่ทับค่าที่ user ตั้งเองอยู่แล้ว แค่เติม field ที่ขาด และสร้าง backup config แบบ timestamp ก่อนเขียนไฟล์
+
+จากนั้น ARC จะหา location ของ Hermes `run_agent.py` ก่อน แล้วค่อยตรวจว่า runtime รองรับ override สำหรับ `system_prompt` และ `response_suffix` หรือยัง ถ้าเจอ Hermes runtime มากกว่า 1 ตัว installer จะให้เลือกก่อนว่าจะ check/patch ตัวไหน ถ้ายังไม่รองรับจะถามก่อน patch Hermes core และสร้าง backup แบบ timestamp ไว้ก่อนเสมอ
 
 สำหรับ unattended install:
 
 ```bash
 # Auto-patch runtime ถ้าจำเป็น
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime
+
+# ติดตั้งโดยไม่แก้ config.yaml
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --no-config
+
+# ติดตั้งกับ config path ที่กำหนดเอง
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --config-path /path/to/config.yaml
 
 # Auto-patch runtime เฉพาะ path กรณีมีหลาย Hermes installs
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime --run-agent-path /path/to/run_agent.py
@@ -247,7 +255,7 @@ runtime_override = {
     "provider": "openrouter",
     "model": "inclusionai/ring-2.6-1t:free",
     "base_url": "https://openrouter.ai/api/v1",
-    "api_key": "env:OPENROUTER_API_KEY",
+    "api_key": "${OPENROUTER_API_KEY}",
     "system_prompt": "You are an expert software engineer...",
 }
 ```

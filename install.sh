@@ -15,17 +15,25 @@ PLUGIN_DIR="${HOME}/.hermes/plugins/topic_detect"
 RESTART=true
 PATCH_RUNTIME="prompt" # prompt | yes | no
 RUN_AGENT_PATH=""
+CONFIGURE=true
+CONFIG_PATH="${HOME}/.hermes/config.yaml"
 
 # ── Parse args ──────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --plugin-dir) PLUGIN_DIR="$2"; shift 2 ;;
     --run-agent-path) RUN_AGENT_PATH="$2"; shift 2 ;;
+    --config-path) CONFIG_PATH="$2"; shift 2 ;;
+    --no-config) CONFIGURE=false; shift ;;
     --no-restart) RESTART=false; shift ;;
     --patch-runtime) PATCH_RUNTIME="yes"; shift ;;
     --no-patch-runtime) PATCH_RUNTIME="no"; shift ;;
     -h|--help)
-      echo "Usage: bash install.sh [--plugin-dir PATH] [--run-agent-path PATH] [--no-restart] [--patch-runtime|--no-patch-runtime]"
+      echo "Usage: bash install.sh [--plugin-dir PATH] [--config-path PATH] [--run-agent-path PATH] [--no-config] [--no-restart] [--patch-runtime|--no-patch-runtime]"
+      echo ""
+      echo "Config options:"
+      echo "  --config-path PATH    Target Hermes config.yaml (default: ~/.hermes/config.yaml)"
+      echo "  --no-config           Do not modify config.yaml"
       echo ""
       echo "Runtime patch options:"
       echo "  --run-agent-path PATH Target a specific Hermes run_agent.py when multiple installs exist"
@@ -224,6 +232,166 @@ if [[ -f "${PATCHER}" ]]; then
   fi
 fi
 
+# ── Ensure Hermes config.yaml has required ARC config ────────────────────────
+if [[ "${CONFIGURE}" == true ]]; then
+  echo "🧩 Ensuring Hermes config has topic_detect settings..."
+  mkdir -p "$(dirname "${CONFIG_PATH}")"
+
+  python3 - "${CONFIG_PATH}" <<'PY'
+from __future__ import annotations
+
+import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
+
+try:
+    import yaml
+except Exception as exc:
+    print(f"❌ PyYAML is required to update config.yaml: {exc}")
+    sys.exit(1)
+
+path = Path(sys.argv[1]).expanduser()
+backup = None
+if path.exists():
+    backup = path.with_suffix(path.suffix + ".arc-backup-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
+    shutil.copy2(path, backup)
+    raw = yaml.safe_load(path.read_text()) or {}
+else:
+    raw = {}
+
+if not isinstance(raw, dict):
+    print("❌ config.yaml root must be a mapping/object")
+    sys.exit(1)
+
+changed = False
+
+def ensure(key, value, obj=raw):
+    global changed
+    if key not in obj or obj[key] is None:
+        obj[key] = value
+        changed = True
+    return obj[key]
+
+plugins = raw.get("plugins")
+if plugins is None:
+    raw["plugins"] = ["topic_detect"]
+    changed = True
+elif isinstance(plugins, list):
+    if "topic_detect" not in plugins:
+        plugins.append("topic_detect")
+        changed = True
+else:
+    print("❌ config.yaml 'plugins' must be a list. Please fix manually.")
+    sys.exit(1)
+
+section = raw.get("topic_detect")
+if section is None:
+    section = {}
+    raw["topic_detect"] = section
+    changed = True
+elif not isinstance(section, dict):
+    print("❌ config.yaml 'topic_detect' must be a mapping/object. Please fix manually.")
+    sys.exit(1)
+
+OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+OPENROUTER_KEY = "${OPENROUTER_API_KEY}"
+
+def target(model: str) -> dict:
+    return {
+        "provider": "openrouter",
+        "model": model,
+        "base_url": OPENROUTER_BASE,
+        "api_key": OPENROUTER_KEY,
+    }
+
+ensure("enabled", True, section)
+ensure("routing_mode", "hybrid", section)
+ensure("inertia", 2, section)
+ensure("min_confidence", 0.45, section)
+ensure("agents_file", "~/.hermes/plugins/topic_detect/AGENTS.md", section)
+ensure("default", target("openrouter/owl-alpha"), section)
+
+semantic = section.get("semantic")
+if semantic is None:
+    semantic = {}
+    section["semantic"] = semantic
+    changed = True
+elif not isinstance(semantic, dict):
+    print("❌ topic_detect.semantic must be a mapping/object. Please fix manually.")
+    sys.exit(1)
+ensure("enabled", True, semantic)
+ensure("provider", "openrouter", semantic)
+ensure("model", "baidu/cobuddy:free", semantic)
+ensure("min_confidence", 0.70, semantic)
+ensure("base_url", OPENROUTER_BASE, semantic)
+ensure("api_key", OPENROUTER_KEY, semantic)
+
+signature = section.get("signature")
+if signature is None:
+    signature = {}
+    section["signature"] = signature
+    changed = True
+elif not isinstance(signature, dict):
+    print("❌ topic_detect.signature must be a mapping/object. Please fix manually.")
+    sys.exit(1)
+ensure("enabled", True, signature)
+
+topics = section.get("topics")
+if topics is None:
+    topics = {}
+    section["topics"] = topics
+    changed = True
+elif not isinstance(topics, dict):
+    print("❌ topic_detect.topics must be a mapping/object. Please fix manually.")
+    sys.exit(1)
+
+ring = "inclusionai/ring-2.6-1t:free"
+cobuddy = "baidu/cobuddy:free"
+owl = "openrouter/owl-alpha"
+required_topics = {
+    "programming": ring,
+    "finance": ring,
+    "science": ring,
+    "academia": ring,
+    "marketing": cobuddy,
+    "roleplay": cobuddy,
+    "trivia": cobuddy,
+    "translation": owl,
+    "legal": owl,
+    "health": owl,
+    "seo": owl,
+    "technology": owl,
+}
+for name, model in required_topics.items():
+    current = topics.get(name)
+    if current is None:
+        topics[name] = target(model)
+        changed = True
+    elif isinstance(current, dict):
+        # Preserve user choices; only fill missing required fields.
+        for k, v in target(model).items():
+            if k not in current or current[k] is None:
+                current[k] = v
+                changed = True
+    else:
+        print(f"❌ topic_detect.topics.{name} must be a mapping/object. Please fix manually.")
+        sys.exit(1)
+
+if changed:
+    path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    print(f"   ✅ Updated {path}")
+    if backup:
+        print(f"   🛟 Backup: {backup}")
+else:
+    print(f"   ✅ {path} already has required ARC config")
+PY
+  echo ""
+else
+  echo "ℹ️  Config update skipped (--no-config)"
+  echo ""
+fi
+
 # ── Verify .env exists ─────────────────────────────────────────────────────
 ENV_FILE="${HOME}/.hermes/.env"
 if [[ ! -f "${ENV_FILE}" ]]; then
@@ -251,7 +419,7 @@ echo "✅ Hermes ARC installed successfully!"
 echo ""
 echo "Next steps:"
 echo "  1. Set OPENROUTER_API_KEY in ~/.hermes/.env"
-echo "  2. Configure topic_detect in ~/.hermes/config.yaml"
+echo "  2. Restart/relaunch Hermes if it was running"
 echo "  3. Run: hermes logs | grep topic_detect"
 echo ""
 echo "Docs: ${PLUGIN_DIR}/README.md"

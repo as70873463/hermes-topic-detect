@@ -31,13 +31,21 @@ The installer copies the plugin into:
 ~/.hermes/plugins/topic_detect
 ```
 
-During install, ARC first discovers the active Hermes `run_agent.py` location, then checks whether it supports runtime `system_prompt` and `response_suffix` overrides. If more than one Hermes runtime is found, the installer asks which one to check/patch. If support is missing, it asks before patching Hermes core and creates a timestamped backup first.
+During install, ARC also updates `~/.hermes/config.yaml` with the required `plugins:` entry and a complete `topic_detect:` block if they are missing. Existing user values are preserved; the installer only fills missing fields and creates a timestamped config backup before writing.
+
+ARC then discovers the active Hermes `run_agent.py` location and checks whether it supports runtime `system_prompt` and `response_suffix` overrides. If more than one Hermes runtime is found, the installer asks which one to check/patch. If support is missing, it asks before patching Hermes core and creates a timestamped backup first.
 
 For unattended installs:
 
 ```bash
 # Auto-patch runtime if needed
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime
+
+# Install without modifying config.yaml
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --no-config
+
+# Install against a custom Hermes config path
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --config-path /path/to/config.yaml
 
 # Auto-patch a specific Hermes runtime when multiple installs exist
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime --run-agent-path /path/to/run_agent.py
@@ -62,7 +70,10 @@ cp __init__.py state.py classifier.py semantic.py config.py \
 # 3. Enable plugin
 hermes plugins enable topic_detect
 
-# 4. Restart Hermes gateway, or exit/relaunch Hermes CLI
+# 4. Add/merge the topic_detect config block from the Configuration section below
+#    (the one-click installer does this automatically)
+
+# 5. Restart Hermes gateway, or exit/relaunch Hermes CLI
 hermes gateway restart
 ```
 
@@ -247,7 +258,7 @@ runtime_override = {
     "provider": "openrouter",
     "model": "inclusionai/ring-2.6-1t:free",
     "base_url": "https://openrouter.ai/api/v1",
-    "api_key": "env:OPENROUTER_API_KEY",
+    "api_key": "${OPENROUTER_API_KEY}",
     "system_prompt": "You are an expert software engineer...",
 }
 ```
