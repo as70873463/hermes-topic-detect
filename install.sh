@@ -208,8 +208,10 @@ if [[ -f "${PATCHER}" ]]; then
           if [[ -r /dev/tty && -w /dev/tty ]]; then
             printf "Patch this Hermes runtime now? [y/N]: " > /dev/tty
             read -r REPLY < /dev/tty || REPLY=""
+            # Accept answers that accidentally include composing characters from IMEs,
+            # e.g. Thai keyboard input like "ัy".
             case "${REPLY}" in
-              y|Y|yes|YES) SHOULD_PATCH="yes" ;;
+              *y*|*Y*) SHOULD_PATCH="yes" ;;
               *) SHOULD_PATCH="no" ;;
             esac
           else
@@ -275,15 +277,31 @@ def ensure(key, value, obj=raw):
 
 plugins = raw.get("plugins")
 if plugins is None:
-    raw["plugins"] = ["topic_detect"]
+    raw["plugins"] = {"enabled": ["topic_detect"]}
     changed = True
-elif isinstance(plugins, list):
-    if "topic_detect" not in plugins:
-        plugins.append("topic_detect")
+elif isinstance(plugins, dict):
+    enabled = plugins.get("enabled")
+    if enabled is None:
+        plugins["enabled"] = ["topic_detect"]
         changed = True
+    elif isinstance(enabled, list):
+        if "topic_detect" not in enabled:
+            enabled.append("topic_detect")
+            changed = True
+    else:
+        print("⚠️  config.yaml plugins.enabled is not a list; leaving it unchanged.")
+        print("   Run manually after install: hermes plugins enable topic_detect")
+elif isinstance(plugins, list):
+    # Older ARC installer versions wrote plugins as a plain list. Current Hermes
+    # expects plugins.enabled, so migrate the legacy shape without dropping values.
+    enabled = list(plugins)
+    if "topic_detect" not in enabled:
+        enabled.append("topic_detect")
+    raw["plugins"] = {"enabled": enabled}
+    changed = True
 else:
-    print("❌ config.yaml 'plugins' must be a list. Please fix manually.")
-    sys.exit(1)
+    print("⚠️  config.yaml 'plugins' has an unsupported shape; leaving it unchanged.")
+    print("   Run manually after install: hermes plugins enable topic_detect")
 
 section = raw.get("topic_detect")
 if section is None:
