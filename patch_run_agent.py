@@ -16,6 +16,7 @@ import hashlib
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -24,21 +25,104 @@ RUN_AGENT_PATH = Path("/usr/local/lib/hermes-agent/run_agent.py")
 BACKUP_SUFFIX = ".backup"
 
 
-def find_run_agent() -> Path:
-    """Locate run_agent.py."""
-    if RUN_AGENT_PATH.exists():
-        return RUN_AGENT_PATH
+def _looks_like_hermes_run_agent(path: Path) -> bool:
+    """Return True if path appears to be Hermes Agent's core run_agent.py."""
+    try:
+        if not path.is_file() or path.name != "run_agent.py":
+            return False
+        text = path.read_text(errors="ignore")[:250_000]
+    except OSError:
+        return False
+    markers = ("class AIAgent", "pre_llm_call", "run_conversation")
+    return sum(marker in text for marker in markers) >= 2
 
-    # Fallback: search
-    result = subprocess.run(
-        ["find", "/usr/local", "-name", "run_agent.py", "-maxdepth", "3"],
-        capture_output=True, text=True
-    )
-    paths = result.stdout.strip().splitlines()
-    if paths:
-        return Path(paths[0])
 
-    print("❌ run_agent.py not found!")
+def find_run_agent_candidates() -> list[Path]:
+    """Locate likely Hermes run_agent.py files across common install layouts."""
+    candidates: list[Path] = []
+
+    def add(path: Path) -> None:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            return
+        if resolved not in candidates and _looks_like_hermes_run_agent(resolved):
+            candidates.append(resolved)
+
+    # Known install/source layouts.
+    known = [
+        RUN_AGENT_PATH,
+        Path.home() / ".hermes/hermes-agent/run_agent.py",
+        Path.home() / ".hermes/hermes_agent/run_agent.py",
+        Path.home() / "hermes-agent/run_agent.py",
+        Path.cwd() / "run_agent.py",
+    ]
+    for path in known:
+        add(path)
+
+    # Infer from the hermes executable/symlink/venv path when possible.
+    hermes_bin = shutil.which("hermes")
+    if hermes_bin:
+        try:
+            exe = Path(hermes_bin).resolve()
+            for parent in [exe.parent, *exe.parents]:
+                add(parent / "run_agent.py")
+                add(parent.parent / "run_agent.py")
+        except OSError:
+            pass
+
+    # Bounded fallback search. Avoid scanning the whole filesystem.
+    roots = [
+        Path("/usr/local/lib"),
+        Path("/usr/local/share"),
+        Path("/opt"),
+        Path.home() / ".hermes",
+        Path.home() / ".local",
+    ]
+    for root in roots:
+        if not root.exists():
+            continue
+        try:
+            for path in root.rglob("run_agent.py"):
+                add(path)
+        except (OSError, PermissionError):
+            continue
+
+    return sorted(candidates, key=lambda p: str(p))
+
+
+def choose_run_agent_path(explicit_path: str | None = None, interactive: bool = True) -> Path:
+    """Choose a run_agent.py path, prompting when multiple candidates exist."""
+    if explicit_path:
+        path = Path(explicit_path).expanduser().resolve()
+        if not _looks_like_hermes_run_agent(path):
+            print(f"❌ Not a valid Hermes run_agent.py: {path}")
+            sys.exit(1)
+        return path
+
+    candidates = find_run_agent_candidates()
+    if not candidates:
+        print("❌ No Hermes run_agent.py candidates found.")
+        print("   Pass --path /path/to/run_agent.py if Hermes is installed in a custom location.")
+        sys.exit(1)
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    print("⚠️  Multiple Hermes run_agent.py candidates found:")
+    for i, path in enumerate(candidates, 1):
+        print(f"  {i}. {path}")
+
+    if interactive and sys.stdin.isatty():
+        while True:
+            choice = input(f"Select target [1-{len(candidates)}] or q to abort: ").strip().lower()
+            if choice in {"q", "quit", "abort"}:
+                sys.exit(1)
+            if choice.isdigit() and 1 <= int(choice) <= len(candidates):
+                return candidates[int(choice) - 1]
+
+    print("❌ Ambiguous runtime target in non-interactive mode.")
+    print("   Re-run with --path /path/to/run_agent.py")
     sys.exit(1)
 
 
@@ -275,19 +359,28 @@ def main():
         "--path", type=str, default=None,
         help="Custom path to run_agent.py"
     )
+    parser.add_argument(
+        "--list", action="store_true",
+        help="List discovered Hermes run_agent.py candidates"
+    )
 
     args = parser.parse_args()
+
+    if args.list:
+        candidates = find_run_agent_candidates()
+        if not candidates:
+            print("No Hermes run_agent.py candidates found")
+            sys.exit(1)
+        for path in candidates:
+            print(path)
+        sys.exit(0)
 
     if not any([args.check, args.patch, args.verify]):
         parser.print_help()
         sys.exit(0)
 
     # Locate run_agent.py
-    run_agent_path = Path(args.path) if args.path else RUN_AGENT_PATH
-
-    if not run_agent_path.exists():
-        print(f"❌ run_agent.py not found at: {run_agent_path}")
-        sys.exit(1)
+    run_agent_path = choose_run_agent_path(args.path, interactive=True)
 
     print(f"🔍 Target: {run_agent_path}")
     print(f"   Size: {run_agent_path.stat().st_size:,} bytes")
@@ -362,5 +455,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import subprocess  # noqa: F811
     main()

@@ -31,13 +31,16 @@ The installer copies the plugin into:
 ~/.hermes/plugins/topic_detect
 ```
 
-During install, ARC checks whether your Hermes `run_agent.py` supports runtime `system_prompt` and `response_suffix` overrides. If support is missing, the installer asks before patching Hermes core and creates a timestamped backup first.
+During install, ARC first discovers the active Hermes `run_agent.py` location, then checks whether it supports runtime `system_prompt` and `response_suffix` overrides. If more than one Hermes runtime is found, the installer asks which one to check/patch. If support is missing, it asks before patching Hermes core and creates a timestamped backup first.
 
 For unattended installs:
 
 ```bash
 # Auto-patch runtime if needed
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime
+
+# Auto-patch a specific Hermes runtime when multiple installs exist
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime --run-agent-path /path/to/run_agent.py
 
 # Never patch runtime
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --no-patch-runtime
@@ -84,10 +87,17 @@ topic_detect: signature=- ring-2.6-1t [programming]
 
 ARC includes a checker/patcher for Hermes core runtime override support. The installer runs this check automatically and asks before patching if compatibility is missing.
 
-Manual check:
+Manual discovery/check:
 
 ```bash
+# List discovered Hermes runtimes
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --list
+
+# Check the auto-selected runtime, or prompt if multiple exist
 python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
+
+# Check a specific runtime
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check --path /path/to/run_agent.py
 ```
 
 Expected fully-compatible result:
@@ -106,7 +116,11 @@ If `system_prompt` or `response_suffix` are missing, model routing may still wor
 To patch supported installs:
 
 ```bash
+# Auto-select/prompt
 python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --patch
+
+# Or patch a specific runtime
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --patch --path /path/to/run_agent.py
 ```
 
 Then restart Hermes.
