@@ -25,7 +25,7 @@ Hermes ARC คือ adaptive conversational orchestration layer สำหรั
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
 ```
 
-Installer จะ copy plugin ไปที่:
+Folderที่อยู่ Plugin:
 
 ```txt
 ~/.hermes/plugins/topic_detect
