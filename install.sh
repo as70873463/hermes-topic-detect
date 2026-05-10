@@ -3,13 +3,13 @@
 # Internal plugin name: topic_detect
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-topic-detect/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
 #   bash install.sh [--plugin-dir PATH] [--no-restart]
 
 set -euo pipefail
 
 # ── Defaults ────────────────────────────────────────────────────────────────
-REPO_RAW="https://raw.githubusercontent.com/ShockShoot/hermes-topic-detect/main"
+REPO_RAW="https://raw.githubusercontent.com/ShockShoot/hermes-arc/main"
 PLUGIN_DIR="${HOME}/.hermes/plugins/topic_detect"
 RESTART=true
 

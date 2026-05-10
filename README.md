@@ -89,7 +89,7 @@ threshold is met — keeping the conversation coherent.
 ### One-Click Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-topic-detect/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
 ```
 
 ### Manual Install
