@@ -14,6 +14,7 @@ logger = logging.getLogger("topic_detect")
 
 _TOPIC_STATE = TopicState()
 _LAST_RUNTIME: dict[str, Any] | None = None
+_LAST_SIGNATURE: str | None = None
 
 
 def _extract_messages(kwargs: dict[str, Any]) -> list[str]:
@@ -88,7 +89,7 @@ def _pre_llm_call(**kwargs):
 
 
 def _pre_llm_call_impl(**kwargs):
-    global _LAST_RUNTIME
+    global _LAST_RUNTIME, _LAST_SIGNATURE
 
     cfg = load_config()
 
@@ -236,6 +237,8 @@ def _pre_llm_call_impl(**kwargs):
         display_topic,
     )
 
+    _LAST_SIGNATURE = signature
+
     logger.info(
         "topic_detect: signature=%s",
         signature,
@@ -264,3 +267,27 @@ def register(ctx):
         "pre_llm_call",
         _pre_llm_call,
     )
+
+    ctx.register_hook(
+        "transform_llm_output",
+        _transform_llm_output,
+    )
+
+
+def _transform_llm_output(response_text: str, **kwargs) -> str | None:
+    """Append signature suffix to the final response text.
+
+    This hook fires after the tool-calling loop completes, before the
+    response is returned to the user.  We read the last signature that
+    was computed in pre_llm_call and append it here so it actually
+    appears in the visible response.
+    """
+    global _LAST_SIGNATURE
+
+    sig = _LAST_SIGNATURE
+    _LAST_SIGNATURE = None
+
+    if sig:
+        return f"{response_text}\n\n{sig}"
+
+    return None
