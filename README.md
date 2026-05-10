@@ -151,7 +151,7 @@ Hermes ARC fixes this by classifying intent, accumulating confidence across turn
 
 ### 🔀 Runtime Model Routing
 
-Per-topic provider, model, base URL, and API key switching via `config.yaml`. When the active topic changes, Hermes loads the correct model on the fly — no manual model picker, no restart for each topic.
+Per-topic provider, model, and base URL switching via `config.yaml`. When the active topic changes, Hermes loads the correct model on the fly — no manual model picker, no restart for each topic.
 
 Example:
 
@@ -162,7 +162,7 @@ topic_detect:
       provider: openrouter
       model: inclusionai/ring-2.6-1t:free
 
-    marketing:
+    finance:
       provider: openrouter
       model: openrouter/owl-alpha
 ```
@@ -199,7 +199,7 @@ Main file: `state.py`
 | Mode | Behavior |
 |------|----------|
 | `keyword` | Fastest — deterministic keyword/phrase scoring. |
-| `semantic` | Smartest — LLM-based classification via OpenRouter. |
+| `semantic` | Smartest — LLM-based classification via configured semantic provider. |
 | `hybrid` | Recommended — keyword first, semantic fallback when confidence is low. |
 
 Preferred production mode:
@@ -250,25 +250,24 @@ topic_detect:
     enabled: true
 ```
 
-### 🧩 Runtime Prompt Injection
+### 🧩 Runtime Override
 
-ARC can return a runtime override containing:
+ARC returns a `runtime_override` dict from the `pre_llm_call` hook:
 
 ```python
 runtime_override = {
     "provider": "openrouter",
     "model": "inclusionai/ring-2.6-1t:free",
     "base_url": "https://openrouter.ai/api/v1",
-    "api_key": "${OPENROUTER_API_KEY}",
     "system_prompt": "You are an expert software engineer...",
 }
 ```
 
 This powers model routing + persona routing from the same decision layer.
 
-If no configured topic target matches, ARC returns `restore_main: true` rather than a topic-specific model. The compatibility patch restores Hermes' original main runtime for the session. ARC no longer defines a separate `topic_detect.default` model, because that can conflict with the user's primary Hermes model.
+**No-match behavior:** if no configured topic target matches, ARC returns `{"restore_main": true}` instead of a topic-specific model. The compatibility patch restores Hermes' original main runtime for that session. ARC does **not** define a separate `topic_detect.default` model, because that can conflict with the user's primary Hermes model.
 
-> Compatibility note: modern ARC compatibility uses Hermes' own provider resolver plus `switch_model()`. This is required for cross-provider routing, `api_mode` changes, OAuth/subscriber credentials, provider-specific headers, client rebuilds, and context-compressor metadata. Use the checker below.
+> **Compatibility note:** the ARC compatibility patch uses Hermes' own provider resolver and `switch_model()`. This enables cross-provider routing, `api_mode` changes, OAuth/subscriber credentials, provider-specific headers, client rebuilds, and context-compressor metadata. Use the checker above to verify your runtime.
 
 ---
 
@@ -279,13 +278,16 @@ User Input
    ↓
 Keyword Classifier       ← fast, deterministic
    ↓
-Semantic Router          ← LLM-based fallback via OpenRouter
+Semantic Router          ← LLM-based fallback
    ↓
 Smart Inertia Engine     ← confidence accumulation across turns
    ↓
 Topic State              → model routing + persona selection
    ↓
-Runtime Override         → provider / model / base_url / api_key / system_prompt
+Runtime Override         → provider / model / base_url / system_prompt
+                          or restore_main: true (no match)
+   ↓
+Compatibility Patch      → resolve_provider_client() + switch_model()
    ↓
 Signature Layer          → transparency tag appended to response
 ```
@@ -317,7 +319,6 @@ topic_detect:
     model: baidu/cobuddy:free
     min_confidence: 0.7
     base_url: https://openrouter.ai/api/v1
-    api_key: ${OPENROUTER_API_KEY}
 
   # Per-topic model routing
   topics:
@@ -326,13 +327,16 @@ topic_detect:
       model: inclusionai/ring-2.6-1t:free
     finance:
       provider: openrouter
-      model: inclusionai/ring-2.6-1t:free
+      model: openrouter/owl-alpha
     science:
       provider: openrouter
       model: inclusionai/ring-2.6-1t:free
-    academia:
+    technology:
       provider: openrouter
-      model: inclusionai/ring-2.6-1t:free
+      model: openrouter/owl-alpha
+    marketing:
+      provider: openrouter
+      model: openrouter/owl-alpha
     health:
       provider: openrouter
       model: openrouter/owl-alpha
@@ -345,12 +349,9 @@ topic_detect:
     translation:
       provider: openrouter
       model: openrouter/owl-alpha
-    technology:
+    academia:
       provider: openrouter
-      model: openrouter/owl-alpha
-    marketing:
-      provider: openrouter
-      model: openrouter/owl-alpha
+      model: inclusionai/ring-2.6-1t:free
     roleplay:
       provider: openrouter
       model: baidu/cobuddy:free
@@ -359,7 +360,25 @@ topic_detect:
       model: baidu/cobuddy:free
 ```
 
-Secrets should live in `~/.hermes/.env`, not directly in `config.yaml`. Add your OpenRouter key there under the standard `OPENROUTER_API_KEY` variable name.
+### Provider Support
+
+| Provider type | Supported | Notes |
+|---------------|-----------|-------|
+| OpenRouter | ✅ | Full support — API key via `OPENROUTER_API_KEY` env |
+| OpenAI-compatible (DeepSeek, vLLM, LM Studio, etc.) | ✅ | Set `base_url` + `api_key` in topic config |
+| OpenAI Codex (OAuth) | ✅ | Set provider to `openai-codex`, no `api_key` needed — Hermes resolver handles OAuth |
+| Anthropic (OAuth) | ✅ | Set provider to `anthropic`, no `api_key` needed |
+| Other Hermes-resolved providers | ✅ | Any provider Hermes knows — just set `provider:` and optionally `model:` |
+
+**Key point:** you do **not** need to put `api_key` in topic config for OAuth/subscriber providers. If the `api_key` value is an unresolved `${ENV}` placeholder, ARC ignores it and lets Hermes' provider resolver supply credentials.
+
+### Credential Resolution Order
+
+1. If topic target has a literal `api_key` → passed through to runtime override
+2. If topic target has `api_key: null` or unresolved `${...}` → omitted from override; Hermes resolver handles auth
+3. If no topic matches → `restore_main: true` → Hermes restores original session credentials
+
+Secrets should live in `~/.hermes/.env`, not directly in `config.yaml`.
 
 ---
 
@@ -390,9 +409,9 @@ state.decide(result.topic, result.confidence, inertia, min_confidence)
 |------|---------|
 | `__init__.py` | Plugin entry point. Registers the `pre_llm_call` hook and returns runtime overrides. |
 | `classifier.py` | Keyword classifier with weighted scoring, phrase boosts, and recency weighting. |
-| `semantic.py` | LLM-based semantic classifier via OpenRouter API. |
+| `semantic.py` | LLM-based semantic classifier via configured semantic provider. |
 | `state.py` | Smart Inertia Engine — confidence accumulation and topic switching. |
-| `config.py` | Loads `topic_detect:` config into typed dataclasses. |
+| `config.py` | Loads `topic_detect:` config into typed dataclasses. Expands env vars; ignores unresolved `${...}` api_key placeholders. |
 | `agent_loader.py` | Parses `AGENTS.md` into topic-to-persona mappings. |
 | `signature.py` | Builds the transparency signature tag. |
 | `patch_run_agent.py` | Compatibility checker/patcher for Hermes core runtime override support. |
@@ -407,7 +426,7 @@ state.decide(result.topic, result.confidence, inertia, min_confidence)
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `OPENROUTER_API_KEY` | Required for semantic mode and OpenRouter topic models | API key for OpenRouter. |
+| `OPENROUTER_API_KEY` | For semantic mode and OpenRouter topic models | API key for OpenRouter. |
 
 Store keys in `~/.hermes/.env`. Never commit secrets, tokens, logs, cache files, or `.env`.
 
@@ -444,7 +463,7 @@ hermes gateway restart
 - Use `routing_mode: semantic` for more nuanced classification.
 - Check logs for classifier confidence and selected topic.
 
-If no topic matches, this is expected: ARC emits no runtime override and Hermes uses the main `model:` config.
+If no topic matches, this is expected: ARC returns `restore_main: true` and Hermes uses the main `model:` config.
 
 ### Unexpected topic switches
 
@@ -467,6 +486,16 @@ python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
 ```
 
 If `system_prompt override` is not supported, patch Hermes core or use ARC only for model routing/signature behavior.
+
+### Model not switching provider
+
+Run:
+
+```bash
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
+```
+
+If `uses switch_model runtime` is not ✅, patch Hermes core. Model routing without `switch_model()` only changes `self.model` string but does **not** rebuild the client or update `api_mode` — this causes failures when switching between providers with different auth methods (e.g. OAuth ↔ API key).
 
 ---
 
@@ -498,15 +527,4 @@ Future ecosystem modules may include:
 - Make routing visible and debuggable through signatures.
 - Keep secrets outside config and outside git.
 - Favor incremental compatibility with Hermes core over risky rewrites.
-
----
-
-## 📄 License
-
-MIT — same as [Hermes Agent](https://github.com/NousResearch/hermes-agent).
-
----
-
-<div align="center">
-  <sub>Built for <a href="https://hermes-agent.nousresearch.com">Hermes Agent</a> · Maintained by <a href="https://github.com/ShockShoot">ShockShoot</a></sub>
-</div>
+- Let Hermes' own provider resolver handle credentials — don't duplicate auth logic in the plugin.

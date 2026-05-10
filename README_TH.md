@@ -148,7 +148,7 @@ Hermes ARC แก้ด้วยการ classify intent สะสม confidenc
 
 ### 🔀 Runtime Model Routing
 
-สลับ provider, model, base URL และ API key แยกตาม topic ผ่าน `config.yaml` เมื่อ active topic เปลี่ยน Hermes จะโหลดโมเดลที่เหมาะสมทันทีโดยไม่ต้องเปิด model picker หรือ restart ทุกครั้ง
+สลับ provider, model และ base URL แยกตาม topic ผ่าน `config.yaml` เมื่อ active topic เปลี่ยน Hermes จะโหลดโมเดลที่เหมาะสมทันทีโดยไม่ต้องเปิด model picker หรือ restart ทุกครั้ง
 
 ตัวอย่าง:
 
@@ -159,7 +159,7 @@ topic_detect:
       provider: openrouter
       model: inclusionai/ring-2.6-1t:free
 
-    marketing:
+    finance:
       provider: openrouter
       model: openrouter/owl-alpha
 ```
@@ -196,7 +196,7 @@ total = 1.73
 | Mode | Behavior |
 |------|----------|
 | `keyword` | เร็วที่สุด — deterministic keyword/phrase scoring |
-| `semantic` | ฉลาดที่สุด — LLM-based classification ผ่าน OpenRouter |
+| `semantic` | ฉลาดที่สุด — LLM-based classification ผ่าน semantic provider ที่ config ไว้ |
 | `hybrid` | แนะนำสำหรับ production — keyword ก่อน แล้ว fallback เป็น semantic เมื่อ confidence ต่ำ |
 
 โหมดที่แนะนำ:
@@ -247,25 +247,24 @@ topic_detect:
     enabled: true
 ```
 
-### 🧩 Runtime Prompt Injection
+### 🧩 Runtime Override
 
-ARC สามารถ return runtime override แบบนี้:
+ARC return `runtime_override` dict จาก `pre_llm_call` hook:
 
 ```python
 runtime_override = {
     "provider": "openrouter",
     "model": "inclusionai/ring-2.6-1t:free",
     "base_url": "https://openrouter.ai/api/v1",
-    "api_key": "${OPENROUTER_API_KEY}",
     "system_prompt": "You are an expert software engineer...",
 }
 ```
 
 สิ่งนี้ทำให้ model routing + persona routing ถูกควบคุมจาก decision layer เดียวกัน
 
-ถ้าไม่มี topic target ที่ match, ARC จะคืน `restore_main: true` แทนการเลือก model ของ plugin เอง compatibility patch จะ restore runtime หลักเดิมของ Hermes ใน session นั้น ตอนนี้ ARC ไม่มี `topic_detect.default` แยกแล้ว เพราะ default ของ plugin อาจตีกับ main default model ของ Hermes ได้
+**กรณีไม่มี topic match:** ถ้าไม่มี topic target ที่ match, ARC จะคืน `{"restore_main": true}` แทนการเลือก model ของ plugin เอง compatibility patch จะ restore runtime หลักเดิมของ Hermes ใน session นั้น ARC ไม่มี `topic_detect.default` แยก เพราะ default ของ plugin อาจตีกับ main default model ของ Hermes ได้
 
-> Compatibility note: ARC compatibility รุ่นใหม่ใช้ provider resolver ของ Hermes และเรียก `switch_model()` โดยตรง เพื่อรองรับ cross-provider routing, การเปลี่ยน `api_mode`, OAuth/subscriber credentials, provider-specific headers, client rebuild และ context-compressor metadata ใช้ checker ด้านบนเพื่อตรวจสอบ
+> **Compatibility note:** ARC compatibility patch ใช้ provider resolver ของ Hermes และเรียก `switch_model()` โดยตรง เพื่อรองรับ cross-provider routing, การเปลี่ยน `api_mode`, OAuth/subscriber credentials, provider-specific headers, client rebuild และ context-compressor metadata ใช้ checker ด้านบนเพื่อตรวจสอบ
 
 ---
 
@@ -276,13 +275,16 @@ User Input
    ↓
 Keyword Classifier       ← fast, deterministic
    ↓
-Semantic Router          ← LLM-based fallback via OpenRouter
+Semantic Router          ← LLM-based fallback
    ↓
 Smart Inertia Engine     ← confidence accumulation across turns
    ↓
 Topic State              → model routing + persona selection
    ↓
-Runtime Override         → provider / model / base_url / api_key / system_prompt
+Runtime Override         → provider / model / base_url / system_prompt
+                          or restore_main: true (no match)
+   ↓
+Compatibility Patch      → resolve_provider_client() + switch_model()
    ↓
 Signature Layer          → transparency tag appended to response
 ```
@@ -314,7 +316,6 @@ topic_detect:
     model: baidu/cobuddy:free
     min_confidence: 0.7
     base_url: https://openrouter.ai/api/v1
-    api_key: ${OPENROUTER_API_KEY}
 
   # Per-topic model routing
   topics:
@@ -323,13 +324,16 @@ topic_detect:
       model: inclusionai/ring-2.6-1t:free
     finance:
       provider: openrouter
-      model: inclusionai/ring-2.6-1t:free
+      model: openrouter/owl-alpha
     science:
       provider: openrouter
       model: inclusionai/ring-2.6-1t:free
-    academia:
+    technology:
       provider: openrouter
-      model: inclusionai/ring-2.6-1t:free
+      model: openrouter/owl-alpha
+    marketing:
+      provider: openrouter
+      model: openrouter/owl-alpha
     health:
       provider: openrouter
       model: openrouter/owl-alpha
@@ -342,12 +346,9 @@ topic_detect:
     translation:
       provider: openrouter
       model: openrouter/owl-alpha
-    technology:
+    academia:
       provider: openrouter
-      model: openrouter/owl-alpha
-    marketing:
-      provider: openrouter
-      model: openrouter/owl-alpha
+      model: inclusionai/ring-2.6-1t:free
     roleplay:
       provider: openrouter
       model: baidu/cobuddy:free
@@ -356,7 +357,25 @@ topic_detect:
       model: baidu/cobuddy:free
 ```
 
-Secret ควรอยู่ใน `~/.hermes/.env` ไม่ใช่ใส่ตรงๆ ใน `config.yaml` ให้เก็บ OpenRouter key ไว้ในตัวแปรมาตรฐาน `OPENROUTER_API_KEY`
+### Provider Support
+
+| ประเภท Provider | รองรับ | หมายเหตุ |
+|-----------------|--------|----------|
+| OpenRouter | ✅ | รองรับเต็มที่ — ใช้ API key ผ่าน env `OPENROUTER_API_KEY` |
+| OpenAI-compatible (DeepSeek, vLLM, LM Studio, etc.) | ✅ | ตั้ง `base_url` + `api_key` ใน topic config |
+| OpenAI Codex (OAuth) | ✅ | ตั้ง provider เป็น `openai-codex` ไม่ต้องใส่ `api_key` — Hermes resolver จัดการ OAuth ให้ |
+| Anthropic (OAuth) | ✅ | ตั้ง provider เป็น `anthropic` ไม่ต้องใส่ `api_key` |
+| Provider อื่นที่ Hermes รู้จัก | ✅ | แค่ตั้ง `provider:` และ `model:` ถ้าต้องการ |
+
+**สำคัญ:** ไม่จำเป็นต้องใส่ `api_key` ใน topic config สำหรับ OAuth/subscriber provider ถ้า `api_key` เป็น unresolved placeholder เช่น `${OPENROUTER_API_KEY}` ที่ env ไม่มีค่า — ARC จะ ignore ไว้ แล้วปล่อยให้ Hermes resolver หา credential เอง
+
+### Credential Resolution Order
+
+1. ถ้า topic target มี `api_key` เป็น literal → ส่งผ่านเข้า runtime override
+2. ถ้า topic target มี `api_key: null` หรือ unresolved `${...}` → ไม่ส่งเข้า override; Hermes resolver จัดการ auth
+3. ถ้าไม่มี topic ไหน match → `restore_main: true` → Hermes คืน credential เดิมของ session
+
+Secret ควรอยู่ใน `~/.hermes/.env` ไม่ใช่ใส่ตรงๆ ใน `config.yaml`
 
 ---
 
@@ -387,9 +406,9 @@ state.decide(result.topic, result.confidence, inertia, min_confidence)
 |------|---------|
 | `__init__.py` | Plugin entry point: register `pre_llm_call` hook และ return runtime overrides |
 | `classifier.py` | Keyword classifier พร้อม weighted scoring, phrase boosts และ recency weighting |
-| `semantic.py` | LLM-based semantic classifier ผ่าน OpenRouter API |
+| `semantic.py` | LLM-based semantic classifier ผ่าน semantic provider ที่ config ไว้ |
 | `state.py` | Smart Inertia Engine — confidence accumulation และ topic switching |
-| `config.py` | โหลด `topic_detect:` config เป็น typed dataclasses |
+| `config.py` | โหลด `topic_detect:` config เป็น typed dataclasses — expand env vars และ ignore unresolved `${...}` api_key |
 | `agent_loader.py` | parse `AGENTS.md` เป็น mapping topic-to-persona |
 | `signature.py` | สร้าง transparency signature tag |
 | `patch_run_agent.py` | Compatibility checker/patcher สำหรับ Hermes core runtime override support |
@@ -404,7 +423,7 @@ state.decide(result.topic, result.confidence, inertia, min_confidence)
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `OPENROUTER_API_KEY` | จำเป็นสำหรับ semantic mode และ OpenRouter topic models | API key สำหรับ OpenRouter |
+| `OPENROUTER_API_KEY` | สำหรับ semantic mode และ OpenRouter topic models | API key สำหรับ OpenRouter |
 
 เก็บ keys ใน `~/.hermes/.env` อย่า commit secrets, tokens, logs, cache files หรือ `.env`
 
@@ -441,7 +460,7 @@ hermes gateway restart
 - ใช้ `routing_mode: semantic` ถ้าต้องการ classification ที่เข้าใจบริบทละเอียดขึ้น
 - ตรวจ logs เพื่อดู classifier confidence และ topic ที่เลือก
 
-ถ้าไม่มี topic ไหน match ถือว่าปกติ: ARC จะไม่ส่ง runtime override และ Hermes จะใช้ `model:` หลักต่อไป
+ถ้าไม่มี topic ไหน match ถือว่าปกติ: ARC จะคืน `restore_main: true` และ Hermes จะใช้ `model:` หลักต่อไป
 
 ### Topic switch แปลกๆ
 
@@ -464,6 +483,16 @@ python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
 ```
 
 ถ้า `system_prompt override` ยังไม่รองรับ ให้ patch Hermes core หรือใช้ ARC เฉพาะ model routing/signature behavior
+
+### Model ไม่สลับ provider
+
+รัน:
+
+```bash
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
+```
+
+ถ้า `uses switch_model runtime` ยังไม่เป็น ✅ ให้ patch Hermes core model routing โดยไม่มี `switch_model()` จะเปลี่ยนแค่ string `self.model` แต่ **ไม่** rebuild client หรือเปลี่ยน `api_mode` — ทำให้พังเมื่อสลับระหว่าง provider ที่ auth ต่งกัน (เช่น OAuth ↔ API key)
 
 ---
 
@@ -495,15 +524,4 @@ Future ecosystem modules อาจรวมถึง:
 - ทำให้ routing มองเห็นและ debug ได้ผ่าน signatures
 - เก็บ secrets นอก config และนอก git
 - เลือก incremental compatibility กับ Hermes core มากกว่า risky rewrites
-
----
-
-## 📄 License
-
-MIT — เหมือนกับ [Hermes Agent](https://github.com/NousResearch/hermes-agent)
-
----
-
-<div align="center">
-  <sub>Built for <a href="https://hermes-agent.nousresearch.com">Hermes Agent</a> · Maintained by <a href="https://github.com/ShockShoot">ShockShoot</a></sub>
-</div>
+- ปล่อยให้ Hermes provider resolver จัดการ credentials — ไม่ duplicate auth logic ใน plugin
