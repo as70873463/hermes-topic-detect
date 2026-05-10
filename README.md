@@ -265,6 +265,8 @@ runtime_override = {
 
 This powers model routing + persona routing from the same decision layer.
 
+If no configured topic target matches, ARC returns an empty `runtime_override` and Hermes keeps using the main `model:` config. ARC no longer defines a separate `topic_detect.default` model, because that can conflict with the user's primary Hermes model.
+
 > Compatibility note: model/provider/base_url/api_key support depends on Hermes runtime version. `system_prompt` and `response_suffix` require a compatible or patched `run_agent.py`. Use the checker below.
 
 ---
@@ -315,11 +317,6 @@ topic_detect:
     min_confidence: 0.7
     base_url: https://openrouter.ai/api/v1
     api_key: ${OPENROUTER_API_KEY}
-
-  # Default model when no topic matches
-  default:
-    provider: openrouter
-    model: openrouter/owl-alpha
 
   # Per-topic model routing
   topics:
@@ -440,11 +437,13 @@ Then restart Hermes gateway or relaunch the CLI:
 hermes gateway restart
 ```
 
-### Topic always stays on default
+### Topic does not switch
 
 - Lower `min_confidence` temporarily, for example `0.3`.
 - Use `routing_mode: semantic` for more nuanced classification.
 - Check logs for classifier confidence and selected topic.
+
+If no topic matches, this is expected: ARC emits no runtime override and Hermes uses the main `model:` config.
 
 ### Unexpected topic switches
 

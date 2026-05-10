@@ -174,7 +174,7 @@ def _pre_llm_call_impl(**kwargs):
         },
     )
 
-    target = cfg.default
+    target = None
 
     if (
         topic
@@ -188,7 +188,7 @@ def _pre_llm_call_impl(**kwargs):
         cfg.agents_file,
     )
 
-    if agent_prompt:
+    if agent_prompt and target:
         target.system_prompt = agent_prompt
 
         logger.info(
@@ -197,21 +197,25 @@ def _pre_llm_call_impl(**kwargs):
             len(agent_prompt),
         )
 
-    updates = _runtime_updates(target)
+    updates = _runtime_updates(target) if target else {}
 
     if _LAST_RUNTIME == updates:
         logger.info(
-            "topic_detect: runtime unchanged provider=%s model=%s",
-            target.provider,
-            target.model,
+            "topic_detect: runtime unchanged override=%s",
+            bool(updates),
         )
     else:
-        logger.info(
-            "topic_detect: switching provider=%s model=%s base_url=%s",
-            target.provider,
-            target.model,
-            target.base_url,
-        )
+        if target:
+            logger.info(
+                "topic_detect: switching provider=%s model=%s base_url=%s",
+                target.provider,
+                target.model,
+                target.base_url,
+            )
+        else:
+            logger.info(
+                "topic_detect: no topic target matched; keeping main config model"
+            )
 
         _LAST_RUNTIME = dict(updates)
 
@@ -225,8 +229,10 @@ def _pre_llm_call_impl(**kwargs):
     ):
         display_topic = f"{topic} → {candidate}"
 
+    signature_model = target.model if target else str(kwargs.get("model") or "default")
+
     signature = build_signature(
-        target.model,
+        signature_model,
         display_topic,
     )
 

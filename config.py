@@ -25,7 +25,7 @@ class TopicDetectConfig:
     inertia: int
     min_confidence: float
 
-    default: Target
+    default: Target | None
     topics: dict[str, Target]
 
     semantic_provider: str
@@ -124,20 +124,6 @@ def load_config() -> TopicDetectConfig:
         )
     )
 
-    default_data = section.get(
-        "default",
-        {
-            "provider": raw.get(
-                "provider",
-                "openrouter",
-            ),
-            "model": raw.get(
-                "model",
-                "openrouter/owl-alpha",
-            ),
-        },
-    )
-
     topics_data = section.get("topics", {})
 
     return TopicDetectConfig(
@@ -147,7 +133,10 @@ def load_config() -> TopicDetectConfig:
         inertia=inertia,
         min_confidence=min_confidence,
 
-        default=_target_from_dict(default_data),
+        # No topic_detect-specific default model/provider.
+        # If no topic target matches, the plugin must not emit a runtime
+        # model/provider override; Hermes keeps using the main `model:` config.
+        default=None,
 
         topics={
             name: _target_from_dict(value)

@@ -262,6 +262,8 @@ runtime_override = {
 
 สิ่งนี้ทำให้ model routing + persona routing ถูกควบคุมจาก decision layer เดียวกัน
 
+ถ้าไม่มี topic target ที่ match, ARC จะคืน `runtime_override` ว่าง และปล่อยให้ Hermes ใช้ `model:` หลักต่อไป ตอนนี้ ARC ไม่มี `topic_detect.default` แยกแล้ว เพราะ default ของ plugin อาจตีกับ main default model ของ Hermes ได้
+
 > Compatibility note: model/provider/base_url/api_key support ขึ้นกับ Hermes runtime version ส่วน `system_prompt` และ `response_suffix` ต้องใช้ `run_agent.py` ที่ compatible หรือถูก patch แล้ว ใช้ checker ด้านบนเพื่อตรวจสอบ
 
 ---
@@ -312,11 +314,6 @@ topic_detect:
     min_confidence: 0.7
     base_url: https://openrouter.ai/api/v1
     api_key: ${OPENROUTER_API_KEY}
-
-  # Default model when no topic matches
-  default:
-    provider: openrouter
-    model: openrouter/owl-alpha
 
   # Per-topic model routing
   topics:
@@ -437,11 +434,13 @@ topic_detect:
 hermes gateway restart
 ```
 
-### Topic ค้างอยู่ default ตลอด
+### Topic ไม่ switch
 
 - ลด `min_confidence` ชั่วคราว เช่น `0.3`
 - ใช้ `routing_mode: semantic` ถ้าต้องการ classification ที่เข้าใจบริบทละเอียดขึ้น
 - ตรวจ logs เพื่อดู classifier confidence และ topic ที่เลือก
+
+ถ้าไม่มี topic ไหน match ถือว่าปกติ: ARC จะไม่ส่ง runtime override และ Hermes จะใช้ `model:` หลักต่อไป
 
 ### Topic switch แปลกๆ
 

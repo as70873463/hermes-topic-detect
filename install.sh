@@ -328,7 +328,6 @@ ensure("routing_mode", "hybrid", section)
 ensure("inertia", 2, section)
 ensure("min_confidence", 0.45, section)
 ensure("agents_file", "~/.hermes/plugins/topic_detect/AGENTS.md", section)
-ensure("default", target("openrouter/owl-alpha"), section)
 
 semantic = section.get("semantic")
 if semantic is None:
