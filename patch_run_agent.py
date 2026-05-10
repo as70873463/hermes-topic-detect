@@ -46,35 +46,24 @@ def check_runtime_override_handling(content: str) -> dict:
     """Check if run_agent.py handles runtime_override from pre_llm_call hooks."""
     results = {}
 
-    # Check 1: pre_llm_call hook exists
     results["has_pre_llm_call_hook"] = "pre_llm_call" in content
-
-    # Check 2: runtime_override is read from hook result
-    results["reads_runtime_override"] = bool(
-        re.search(r'runtime_override', content)
-    )
-
-    # Check 3: model override from runtime_override
+    results["reads_runtime_override"] = "runtime_override" in content
     results["applies_model_override"] = bool(
-        re.search(r'_runtime_override\s*=\s*r\.get\(["\']runtime_override["\']\)', content)
-        or re.search(r'runtime_override.*get.*model', content)
+        "_arc_model" in content
+        or re.search(r'runtime_override.*model', content, re.DOTALL)
     )
-
-    # Check 4: provider override
     results["applies_provider_override"] = bool(
-        re.search(r'runtime_override.*get.*provider', content)
+        "_arc_provider" in content
+        or re.search(r'runtime_override.*provider', content, re.DOTALL)
     )
-
-    # Check 5: system_prompt override
     results["applies_system_prompt_override"] = bool(
-        re.search(r'runtime_override.*get.*system_prompt', content)
+        "_plugin_system_prompt" in content
+        or re.search(r'runtime_override.*system_prompt', content, re.DOTALL)
     )
-
-    # Check 6: response_suffix handling
     results["handles_response_suffix"] = bool(
-        re.search(r'response_suffix', content)
+        "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content
+        or re.search(r'response_suffix', content)
     )
-
     return results
 
 
@@ -85,6 +74,8 @@ def needs_patch(results: dict) -> bool:
         "reads_runtime_override",
         "applies_model_override",
         "applies_provider_override",
+        "applies_system_prompt_override",
+        "handles_response_suffix",
     ]
     return not all(results.get(k, False) for k in required)
 
@@ -94,52 +85,138 @@ def apply_patch(path: Path, content: str) -> str:
     Apply compatibility patch to run_agent.py.
 
     The patch ensures that runtime_override from pre_llm_call hooks
-    is properly applied to the agent's model, provider, base_url,
-    api_key, and system_prompt.
+    is applied to model/provider/base_url/api_key, system_prompt, and
+    response_suffix without renaming the topic_detect plugin.
     """
-    # Find the pre_llm_call hook section
-    hook_pattern = re.compile(
-        r'(# Plugin hook: pre_llm_call.*?)(# Plugin hook: post_llm_call|$)',
-        re.DOTALL
-    )
-
-    match = hook_pattern.search(content)
-    if not match:
-        print("⚠️  Could not locate pre_llm_call hook section — patch skipped")
-        return content
-
-    original_hook_section = match.group(1)
-
-    # Check if already patched
-    if "HERMES_ARC_PATCH" in content:
+    if "HERMES_ARC_PATCH" in content and "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content:
         print("ℹ️  Patch already applied — skipping")
         return content
 
-    # Build patched section
-    patched_section = original_hook_section.rstrip()
-    patched_section += "\n\n"
-    patched_section += "            # ── HERMES_ARC_PATCH: system_prompt override ──────────\n"
-    patched_section += "            if isinstance(_runtime_override, dict):\n"
-    patched_section += "                _new_system_prompt = _runtime_override.get(\"system_prompt\")\n"
-    patched_section += "                if _new_system_prompt:\n"
-    patched_section += "                    # Inject topic-specific system prompt\n"
-    patched_section += "                    _existing_system = next(\n"
-    patched_section += "                        (m for m in _messages if m.get(\"role\") == \"system\"),\n"
-    patched_section += "                        None\n"
-    patched_section += "                    )\n"
-    patched_section += "                    if _existing_system:\n"
-    patched_section += "                        _existing_system[\"content\"] = _new_system_prompt\n"
-    patched_section += "                    else:\n"
-    patched_section += "                        _messages.insert(\n"
-    patched_section += "                            0,\n"
-    patched_section += "                            {\"role\": \"system\", \"content\": _new_system_prompt}\n"
-    patched_section += "                        )\n"
-    patched_section += "                    logger.info(\n"
-    patched_section += "                        \"hermes-arc: system_prompt injected from runtime_override\"\n"
-    patched_section += "                    )\n"
-    patched_section += "            # ── END HERMES_ARC_PATCH ──────────────────────────────\n"
+    new_content = content
 
-    new_content = content.replace(original_hook_section, patched_section)
+    if "HERMES_ARC_PATCH: runtime_override support" not in new_content:
+        init_old = '        _plugin_user_context = ""\n        try:\n'
+        init_new = (
+            '        _plugin_user_context = ""\n'
+            '        # HERMES_ARC_PATCH: runtime_override support\n'
+            '        _runtime_override = {}\n'
+            '        _plugin_system_prompt = ""\n'
+            '        try:\n'
+        )
+        if init_old not in new_content:
+            print("⚠️  Could not locate pre_llm_call initialization — patch skipped")
+            return content
+        new_content = new_content.replace(init_old, init_new, 1)
+
+        loop_old = (
+            '            for r in _pre_results:\n'
+            '                if isinstance(r, dict) and r.get("context"):\n'
+            '                    _ctx_parts.append(str(r["context"]))\n'
+            '                elif isinstance(r, str) and r.strip():\n'
+            '                    _ctx_parts.append(r)\n'
+        )
+        loop_new = (
+            '            for r in _pre_results:\n'
+            '                if isinstance(r, dict):\n'
+            '                    if r.get("context"):\n'
+            '                        _ctx_parts.append(str(r["context"]))\n'
+            '                    _arc_override = r.get("runtime_override")\n'
+            '                    if isinstance(_arc_override, dict):\n'
+            '                        _runtime_override.update(_arc_override)\n'
+            '                elif isinstance(r, str) and r.strip():\n'
+            '                    _ctx_parts.append(r)\n'
+        )
+        if loop_old not in new_content:
+            print("⚠️  Could not locate pre_llm_call result loop — patch skipped")
+            return content
+        new_content = new_content.replace(loop_old, loop_new, 1)
+
+        ctx_old = (
+            '            if _ctx_parts:\n'
+            '                _plugin_user_context = "\\n\\n".join(_ctx_parts)\n'
+        )
+        runtime_block = """            if _ctx_parts:
+                _plugin_user_context = "\\n\\n".join(_ctx_parts)
+
+            # HERMES_ARC_PATCH: apply runtime routing overrides from plugins.
+            if isinstance(_runtime_override, dict) and _runtime_override:
+                _arc_model = _runtime_override.get("model")
+                _arc_provider = _runtime_override.get("provider")
+                _arc_base_url = _runtime_override.get("base_url")
+                _arc_api_key = _runtime_override.get("api_key")
+                _arc_system_prompt = _runtime_override.get("system_prompt")
+                if _arc_model:
+                    self.model = str(_arc_model)
+                if _arc_provider:
+                    self.provider = str(_arc_provider)
+                if _arc_base_url:
+                    self.base_url = str(_arc_base_url).rstrip("/")
+                    if hasattr(self, "_client_kwargs"):
+                        self._client_kwargs["base_url"] = self.base_url
+                if _arc_api_key:
+                    self.api_key = str(_arc_api_key)
+                    if hasattr(self, "_client_kwargs"):
+                        self._client_kwargs["api_key"] = self.api_key
+                if (_arc_base_url or _arc_api_key) and hasattr(self, "_replace_primary_openai_client"):
+                    try:
+                        if hasattr(self, "_apply_client_headers_for_base_url"):
+                            self._apply_client_headers_for_base_url(self.base_url)
+                        self._replace_primary_openai_client(reason="hermes_arc_runtime_override")
+                    except Exception as _arc_client_error:
+                        logger.debug("hermes-arc: client refresh skipped: %s", _arc_client_error)
+                if _arc_system_prompt:
+                    _plugin_system_prompt = str(_arc_system_prompt)
+                logger.info(
+                    "hermes-arc: runtime_override applied provider=%s model=%s",
+                    getattr(self, "provider", ""),
+                    getattr(self, "model", ""),
+                )
+"""
+        if ctx_old not in new_content:
+            print("⚠️  Could not locate context assembly — patch skipped")
+            return content
+        new_content = new_content.replace(ctx_old, runtime_block, 1)
+
+    if "HERMES_ARC_SYSTEM_PROMPT_PATCH" not in new_content:
+        sys_old = (
+            '            if self.ephemeral_system_prompt:\n'
+            '                effective_system = (effective_system + "\\n\\n" + self.ephemeral_system_prompt).strip()\n'
+        )
+        sys_new = (
+            '            if self.ephemeral_system_prompt:\n'
+            '                effective_system = (effective_system + "\\n\\n" + self.ephemeral_system_prompt).strip()\n'
+            '            # HERMES_ARC_SYSTEM_PROMPT_PATCH: topic/persona prompt from runtime_override\n'
+            '            if _plugin_system_prompt:\n'
+            '                effective_system = (effective_system + "\\n\\n" + _plugin_system_prompt).strip()\n'
+        )
+        if sys_old in new_content:
+            new_content = new_content.replace(sys_old, sys_new, 1)
+        else:
+            print("⚠️  Could not locate effective_system block — system_prompt patch skipped")
+
+    if "HERMES_ARC_RESPONSE_SUFFIX_PATCH" not in new_content:
+        final_response_pattern = re.compile(
+            r'^(?P<indent>\s*)final_response\s*=\s*assistant_message\.content(?:\s+or\s+["\']{2})?\s*$',
+            re.MULTILINE,
+        )
+        final_match = final_response_pattern.search(new_content)
+        if final_match:
+            indent = final_match.group("indent")
+            suffix_block = (
+                "\n"
+                f"{indent}# HERMES_ARC_RESPONSE_SUFFIX_PATCH: append routing signature\n"
+                f"{indent}try:\n"
+                f"{indent}    if isinstance(_runtime_override, dict):\n"
+                f"{indent}        _response_suffix = _runtime_override.get(\"response_suffix\")\n"
+                f"{indent}        if _response_suffix:\n"
+                f"{indent}            final_response = f\"{{final_response}}{{_response_suffix}}\"\n"
+                f"{indent}except Exception as _arc_suffix_error:\n"
+                f"{indent}    logger.debug(\"hermes-arc: response_suffix append skipped: %s\", _arc_suffix_error)\n"
+            )
+            new_content = new_content[:final_match.end()] + suffix_block + new_content[final_match.end():]
+        else:
+            print("⚠️  Could not locate final_response assignment — response_suffix patch skipped")
+
     return new_content
 
 
@@ -158,7 +235,8 @@ def verify_patch(path: Path) -> bool:
 
     checks = {
         "HERMES_ARC_PATCH marker": "HERMES_ARC_PATCH" in content,
-        "system_prompt injection": "system_prompt injected from runtime_override" in content,
+        "system_prompt injection": "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content or "_plugin_system_prompt" in content,
+        "response_suffix append": "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content,
         "pre_llm_call hook intact": "pre_llm_call" in content,
         "runtime_override handling": "runtime_override" in content,
     }
@@ -276,7 +354,7 @@ def main():
         print("🔎 Verifying...")
         if verify_patch(run_agent_path):
             print("\n✅ Hermes ARC patch verified — restart Hermes to activate")
-            print("   hermes restart")
+            print("   hermes gateway restart")
         else:
             print("\n⚠️  Verification incomplete — check manually")
     else:

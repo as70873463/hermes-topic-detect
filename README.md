@@ -15,6 +15,102 @@ Hermes ARC is an adaptive conversational orchestration layer for [Hermes Agent](
 
 ---
 
+## 🚀 Installation
+
+### One-Click Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
+```
+
+The installer copies the plugin into:
+
+```txt
+~/.hermes/plugins/topic_detect
+```
+
+During install, ARC checks whether your Hermes `run_agent.py` supports runtime `system_prompt` and `response_suffix` overrides. If support is missing, the installer asks before patching Hermes core and creates a timestamped backup first.
+
+For unattended installs:
+
+```bash
+# Auto-patch runtime if needed
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime
+
+# Never patch runtime
+curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --no-patch-runtime
+```
+
+### Manual Install
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/ShockShoot/hermes-arc.git
+cd hermes-arc
+
+# 2. Copy plugin files
+mkdir -p ~/.hermes/plugins/topic_detect
+cp __init__.py state.py classifier.py semantic.py config.py \
+   agent_loader.py signature.py patch_run_agent.py AGENTS.md plugin.yaml README.md \
+   ~/.hermes/plugins/topic_detect/
+
+# 3. Enable plugin
+hermes plugins enable topic_detect
+
+# 4. Restart Hermes gateway, or exit/relaunch Hermes CLI
+hermes gateway restart
+```
+
+### Verify Installation
+
+```bash
+hermes plugins list | grep topic_detect
+hermes logs | grep topic_detect
+```
+
+Possible log output:
+
+```txt
+topic_detect: loaded
+topic_detect: switching provider=openrouter model=inclusionai/ring-2.6-1t:free
+topic_detect: signature=- ring-2.6-1t [programming]
+```
+
+---
+
+## ✅ Runtime Compatibility Check
+
+ARC includes a checker/patcher for Hermes core runtime override support. The installer runs this check automatically and asks before patching if compatibility is missing.
+
+Manual check:
+
+```bash
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
+```
+
+Expected fully-compatible result:
+
+```txt
+pre_llm_call hook: ✅
+reads runtime_override: ✅
+applies model override: ✅
+applies provider override: ✅
+applies system_prompt override: ✅
+handles response_suffix: ✅
+```
+
+If `system_prompt` or `response_suffix` are missing, model routing may still work, but persona injection/signature behavior will be limited until `run_agent.py` is patched.
+
+To patch supported installs:
+
+```bash
+python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --patch
+```
+
+Then restart Hermes.
+
+---
+
 ## 🤔 The Problem
 
 Most multi-agent systems switch models abruptly. One message goes to a coding expert, the next is silently handed off to another model mid-thought. That feels jarring, incoherent, and breaks conversational flow.
@@ -165,88 +261,6 @@ Signature Layer          → transparency tag appended to response
 ```
 
 Current classification: this is no longer only *topic detection*. Hermes ARC is closer to an adaptive conversational orchestration framework — a lightweight multi-agent runtime for models, personas, tools, memory, and behavior.
-
----
-
-## 🚀 Installation
-
-### One-Click Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
-```
-
-The installer copies the plugin into:
-
-```txt
-~/.hermes/plugins/topic_detect
-```
-
-### Manual Install
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/ShockShoot/hermes-arc.git
-cd hermes-arc
-
-# 2. Copy plugin files
-mkdir -p ~/.hermes/plugins/topic_detect
-cp __init__.py state.py classifier.py semantic.py config.py \
-   agent_loader.py signature.py patch_run_agent.py AGENTS.md plugin.yaml README.md \
-   ~/.hermes/plugins/topic_detect/
-
-# 3. Enable plugin
-hermes plugins enable topic_detect
-
-# 4. Restart Hermes gateway, or exit/relaunch Hermes CLI
-hermes gateway restart
-```
-
-### Verify Installation
-
-```bash
-hermes plugins list | grep topic_detect
-hermes logs | grep topic_detect
-```
-
-Possible log output:
-
-```txt
-topic_detect: loaded
-topic_detect: switching provider=openrouter model=inclusionai/ring-2.6-1t:free
-topic_detect: signature=- ring-2.6-1t [programming]
-```
-
----
-
-## ✅ Runtime Compatibility Check
-
-ARC includes a checker/patcher for Hermes core runtime override support:
-
-```bash
-python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check
-```
-
-Expected fully-compatible result:
-
-```txt
-pre_llm_call hook: ✅
-reads runtime_override: ✅
-applies model override: ✅
-applies provider override: ✅
-applies system_prompt override: ✅
-handles response_suffix: ✅
-```
-
-If `system_prompt` or `response_suffix` are missing, model routing may still work, but persona injection/signature behavior will be limited until `run_agent.py` is patched.
-
-To patch supported installs:
-
-```bash
-python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --patch
-```
-
-Then restart Hermes.
 
 ---
 
