@@ -3,6 +3,8 @@
 > **Smart multi-agent orchestration for Hermes Agent.**<br>
 > Routes conversations by topic — switching models, personas, and prompts in real time, with human-like contextual inertia.
 
+**English** · [ไทย](README_TH.md)
+
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Hermes Plugin](https://img.shields.io/badge/Hermes-plugin-blue)
 ![Status](https://img.shields.io/badge/status-v2.1--beta-orange)
@@ -51,7 +53,7 @@ cd hermes-arc
 # 2. Copy plugin files
 mkdir -p ~/.hermes/plugins/topic_detect
 cp __init__.py state.py classifier.py semantic.py config.py \
-   agent_loader.py signature.py patch_run_agent.py AGENTS.md plugin.yaml README.md \
+   agent_loader.py signature.py patch_run_agent.py AGENTS.md plugin.yaml README.md README_TH.md \
    ~/.hermes/plugins/topic_detect/
 
 # 3. Enable plugin
@@ -373,7 +375,8 @@ state.decide(result.topic, result.confidence, inertia, min_confidence)
 | `patch_run_agent.py` | Compatibility checker/patcher for Hermes core runtime override support. |
 | `AGENTS.md` | Persona definitions for all supported topics. |
 | `plugin.yaml` | Plugin metadata. |
-| `README.md` | Project documentation. |
+| `README.md` | Project documentation in English. |
+| `README_TH.md` | Project documentation in Thai. |
 
 ---
 

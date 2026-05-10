@@ -70,6 +70,7 @@ FILES=(
   AGENTS.md
   plugin.yaml
   README.md
+  README_TH.md
 )
 
 # ── Download or copy ────────────────────────────────────────────────────────
