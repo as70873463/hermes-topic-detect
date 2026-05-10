@@ -246,6 +246,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+import os
 
 try:
     import yaml
@@ -362,6 +363,28 @@ if topics is None:
 elif not isinstance(topics, dict):
     print("❌ topic_detect.topics must be a mapping/object. Please fix manually.")
     sys.exit(1)
+
+# ── Migration: remove stale fields ──────────────────────────────────────
+# Remove topic_detect.default — ARC no longer uses a plugin-level default
+# model/provider. If present, it overrides the user's main Hermes model
+# on every turn, which is almost never what anyone wants.
+if "default" in section:
+    del section["default"]
+    changed = True
+    print("   🧹 Removed stale topic_detect.default (no longer needed)")
+
+# Remove unresolved ${ENV} api_key placeholders from topic targets.
+# ARC's config.py now ignores them, but cleaning up avoids confusion.
+for tname, tval in list(topics.items()):
+    if isinstance(tval, dict):
+        tkey = tval.get("api_key")
+        if isinstance(tkey, str) and tkey.startswith("${") and tkey.endswith("}"):
+            # Only remove if the env var is actually unset.
+            env_var = tkey[2:-1].split(":")[0]
+            if not os.environ.get(env_var):
+                del tval["api_key"]
+                changed = True
+                print(f"   🧹 Removed unresolved api_key from topics.{tname}")
 
 ring = "inclusionai/ring-2.6-1t:free"
 cobuddy = "baidu/cobuddy:free"
