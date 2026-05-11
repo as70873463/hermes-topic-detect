@@ -30,7 +30,7 @@ The installer handles everything: plugin files, config, and runtime compatibilit
 After install, set your API key:
 
 ```bash
-echo '<provider>_API_KEY=<your-key>' >> ~/.hermes/.env
+echo '<provider-your-use>_API_KEY=<your-key>' >> ~/.hermes/.env
 hermes gateway restart
 ```
 
