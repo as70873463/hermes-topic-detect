@@ -158,7 +158,7 @@ runtime override สำหรับหัวข้อนั้น และ Herm
 ```text
 - nemotron-3-super-120b-a12b [software_it]
 - owl-alpha [business_finance]
-- owl-alpha [none]
+- owl-alpha [general]
 ```
 
 ปิดด้วย `signature.enabled: false`

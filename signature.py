@@ -10,6 +10,8 @@ def build_signature(
     if ":" in short:
         short = short.split(":")[0]
 
-    label = topic or "default"
+    label = topic or "general"
+    if label == "none":
+        label = "general"
 
     return f"- {short} [{label}]"

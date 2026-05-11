@@ -159,7 +159,7 @@ When enabled, each response ends with a routing tag:
 ```text
 - nemotron-3-super-120b-a12b [software_it]
 - owl-alpha [business_finance]
-- owl-alpha [none]
+- owl-alpha [general]
 ```
 
 Disable with `signature.enabled: false`.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 - 2026-05-11
+
+### Changed
+- Signature display now renders internal `none`/empty fallback topics as `general`, e.g. `- gpt-5.5 [general]`, while keeping internal routing logic as `none`.
+
 ## 1.1.0 - 2026-05-11
 
 ### Added
