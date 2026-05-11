@@ -451,19 +451,6 @@ if "default" in section:
     changed = True
     print("   🧹 Removed stale topic_detect.default (no longer needed)")
 
-# Remove unresolved ${ENV} api_key placeholders from topic targets.
-# ARC's config.py now ignores them, but cleaning up avoids confusion.
-for tname, tval in list(topics.items()):
-    if isinstance(tval, dict):
-        tkey = tval.get("api_key")
-        if isinstance(tkey, str) and tkey.startswith("${") and tkey.endswith("}"):
-            # Only remove if the env var is actually unset.
-            env_var = tkey[2:-1].split(":")[0]
-            if not os.environ.get(env_var):
-                del tval["api_key"]
-                changed = True
-                print(f"   🧹 Removed unresolved api_key from topics.{tname}")
-
 nemotron = "nvidia/nemotron-3-super-120b-a12b:free"
 owl = "openrouter/owl-alpha"
 gpt_oss = "openai/gpt-oss-120b:free"
@@ -477,6 +464,72 @@ required_topics = {
     "writing_language": gpt_oss,
     "entertainment_media": owl,
 }
+
+# Older ARC versions shipped 12 topics. When a user installs the new 8-topic
+# version over an existing install, a pure additive merge leaves dead categories
+# in config.yaml forever. Migrate obvious old categories into their new Arena-
+# aligned names only when the new category is absent, then always remove the old
+# key. The old `science` key is intentionally kept because it is still a valid
+# current topic.
+legacy_topic_renames = {
+    "programming": "software_it",
+    "technology": "software_it",
+    "finance": "business_finance",
+    "marketing": "business_finance",
+    "legal": "legal_government",
+    "health": "medicine_healthcare",
+    "academia": "science",
+    "translation": "writing_language",
+    "seo": "writing_language",
+    "roleplay": "entertainment_media",
+    "trivia": "entertainment_media",
+}
+for old_name, new_name in legacy_topic_renames.items():
+    if old_name not in topics:
+        continue
+    old_value = topics.pop(old_name)
+    changed = True
+    if new_name not in topics and isinstance(old_value, dict):
+        topics[new_name] = old_value
+        print(f"   🔁 Migrated legacy topics.{old_name} -> topics.{new_name}")
+    else:
+        print(f"   🧹 Removed legacy topics.{old_name}")
+
+# Remove any remaining unknown legacy/default ARC-generated categories while
+# preserving genuinely custom user topics. These names are known from the old
+# 12-topic installer, so this is intentionally not a broad allowlist wipe.
+legacy_topic_names = {
+    "programming",
+    "finance",
+    "academia",
+    "health",
+    "legal",
+    "seo",
+    "translation",
+    "technology",
+    "marketing",
+    "roleplay",
+    "trivia",
+}
+for old_name in legacy_topic_names:
+    if old_name in topics:
+        del topics[old_name]
+        changed = True
+        print(f"   🧹 Removed legacy topics.{old_name}")
+
+# Remove unresolved ${ENV} api_key placeholders from topic targets.
+# ARC's config.py now ignores them, but cleaning up avoids confusion.
+for tname, tval in list(topics.items()):
+    if isinstance(tval, dict):
+        tkey = tval.get("api_key")
+        if isinstance(tkey, str) and tkey.startswith("${") and tkey.endswith("}"):
+            # Only remove if the env var is actually unset.
+            env_var = tkey[2:-1].split(":")[0]
+            if not os.environ.get(env_var):
+                del tval["api_key"]
+                changed = True
+                print(f"   🧹 Removed unresolved api_key from topics.{tname}")
+
 for name, model in required_topics.items():
     current = topics.get(name)
     if current is None:

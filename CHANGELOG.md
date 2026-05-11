@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3 - 2026-05-11
+
+### Fixed
+- Installer now migrates/removes legacy 12-topic config keys when updating to the 8-topic Arena-aligned taxonomy, preventing stale topics from accumulating in `topic_detect.topics`.
+- Legacy topic values are preserved when they can be safely moved into a new topic that does not already exist; custom non-legacy topics are left untouched.
+
 ## 1.1.2 - 2026-05-11
 
 ### Changed
