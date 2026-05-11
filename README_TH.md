@@ -1,35 +1,90 @@
 # ⚡ Hermes ARC — Adaptive Routing Core
 
-> **ระบบ orchestration อัจฉริยะสำหรับ Hermes Agent**<br>
-> จัดเส้นทางบทสนทนาตามหัวข้อที่ align กับ Arena.ai — สลับโมเดล, persona และ prompt แบบ real-time
+> **Reference implementation สำหรับ topic-aware runtime model routing บน Hermes Agent**  
+> ARC ตรวจว่าผู้ใช้กำลังคุยเรื่องอะไร แล้ว route turn นั้นไปยัง model/persona ที่เหมาะกับหัวข้อนั้นที่สุด
 
-[English](README.md) · **ไทย**
+<p align="center">
+  <strong>Topic-aware routing</strong> · <strong>Runtime model switching</strong> · <strong>Arena-aligned taxonomy</strong> · <strong>Hermes plugin</strong>
+</p>
+
+<p align="center">
+  <strong>ไทย</strong> · <a href="README.md">English</a>
+</p>
+
+---
+
+## ทำไม ARC ถึงมีอยู่
+
+Hermes ใช้ main model ตัวเดียวตอบทุกงานได้ แต่ในโลกจริงมันไม่ใช่ทางเลือกที่ดีที่สุดเสมอไป:
+
+- คำถาม coding อาจเหมาะกับโมเดลที่แข็งด้าน coding มากกว่า
+- คำถาม finance อาจเหมาะกับโมเดลด้าน business/finance มากกว่า
+- งาน creative/media อาจไม่จำเป็นต้องใช้ reasoning model แพง ๆ
+- แชตทั่วไปควรอยู่กับ main model โดยไม่สลับมั่ว
+
+**Hermes ARC ทำให้ model routing เป็น plugin-level capability:**
+
+```text
+User message
+  → classify topic
+  → choose configured model/persona
+  → call Hermes with a runtime override
+  → append a small routing signature
+```
+
+ARC ตั้งใจให้เล็ก ใช้งานจริง และเป็นฐานสำหรับ smart routing ในอนาคต ไม่ได้พยายามเป็น router อัจฉริยะครบทุกอย่างตั้งแต่แรก
 
 ---
 
 ## ทำอะไรได้
 
-ARC ดูว่าคุณกำลังคุยเรื่องอะไร แล้ว:
+- **ตรวจจับหัวข้อ** ด้วย keyword, semantic หรือ hybrid routing
+- **สลับ model/provider แบบ runtime** ตาม `topic_detect.topics`
+- **ใส่ persona เฉพาะหัวข้อ** จาก `AGENTS.md`
+- **fallback ปลอดภัย** กลับ main Hermes model ถ้าหัวข้อไม่ชัดพอ
+- **แสดง signature** เพื่อให้เห็นว่า turn นั้น route ไปไหน
 
-- **สลับโมเดลอัตโนมัติ** — คำถาม software/coding ไปโมเดล software, เรื่อง business/finance ไปโมเดล business/finance ฯลฯ
-- **ใส่ persona** — แต่ละหัวข้อได้ system prompt เฉพาะทาง
-- **แสดง signature** — แท็กเล็ก ๆ ท้ายข้อความบอกว่าใช้โมเดล/หัวข้ออะไร
+ตัวอย่าง signature:
 
-หัวข้อถูกจัดให้ align กับหมวด leaderboard ของ Arena.ai เพื่อให้ user ไปดูเองได้ว่าโมเดลที่ใช้อยู่เก่งหมวดไหน แล้วเอา model มาใส่ config ได้ตรง ๆ ARC **ไม่ดึงคะแนน Arena และไม่เลือกโมเดลให้อัตโนมัติ**
+```text
+- gemma-4-31b:free [software_it]
+- minimax-m2.5:free [business_finance]
+- glm-4.5-air:free [entertainment_media]
+- gpt-5.5 [general]
+```
 
-ถ้า prompt ไม่เข้า specialized topic ด้วยความมั่นใจพอ ARC จะคืน `none` แล้วให้ Hermes ใช้ main/default model ทันที จงใจไม่มีหัวข้อ `general`
+ภายใน ARC ยังใช้ `none` เพื่อหมายถึง “ไม่มี specialized topic ที่มั่นใจพอ” แต่ฝั่ง user-facing signature จะแสดงเป็น `[general]` เพราะเข้าใจง่ายกว่า
 
 ---
 
-## ติดตั้ง
+## ความสัมพันธ์กับ Hermes Core
+
+ตอนนี้ ARC ทำงานเป็น Hermes plugin และอาจต้องใช้ compatibility patch ใน Hermes version ที่ `pre_llm_call` ยัง apply runtime override ไม่ได้
+
+งาน upstream ที่เกี่ยวข้อง:
+
+- Smart routing discussion: https://github.com/NousResearch/hermes-agent/issues/21827
+- Core primitive proposal: https://github.com/NousResearch/hermes-agent/issues/23739
+
+ถ้า Hermes core เพิ่ม native `pre_llm_call` runtime override, ARC จะถอดทาง monkey-patch ออก แล้วใช้ hook นั้นได้โดยตรง
+
+Architecture เป้าหมาย:
+
+```text
+Hermes core pre_llm_call runtime override
+  → router plugins/providers
+  → topic routing, complexity routing, Manifest-style smart routing
+```
+
+---
+
+## ติดตั้งเร็ว
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
 ```
 
-Installer จัดการทุกอย่าง: plugin, config, และเช็ค runtime compatibility
-
-เช็คว่ามีอัปเดตไหมโดยยังไม่ติดตั้ง:
+เช็ค update โดยยังไม่ติดตั้ง:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --check
@@ -41,7 +96,7 @@ curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --update
 ```
 
-หลังติดตั้ง ใส่ API key:
+หลังติดตั้ง ใส่ provider key เช่น OpenRouter:
 
 ```bash
 echo 'OPENROUTER_API_KEY=<your-key>' >> ~/.hermes/.env
@@ -50,9 +105,9 @@ hermes gateway restart
 
 ---
 
-## ตั้งค่า
+## Config แนะนำ
 
-`~/.hermes/config.yaml` ขั้นต่ำ:
+เพิ่มหรืออัปเดต section นี้ใน `~/.hermes/config.yaml`:
 
 ```yaml
 plugins:
@@ -62,106 +117,101 @@ plugins:
 topic_detect:
   enabled: true
   routing_mode: hybrid
+  inertia: 2
+  min_confidence: 0.45
+  agents_file: ~/.hermes/plugins/topic_detect/AGENTS.md
+  semantic:
+    enabled: true
+    provider: openrouter
+    model: baidu/cobuddy:free
+    min_confidence: 0.7
+    base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
   signature:
     enabled: true
   update_check:
     enabled: true
-    # เช็คครั้งเดียวหลัง Hermes restart; เขียน log เท่านั้น ไม่แปะท้าย chat
     url: https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/plugin.yaml
     timeout_seconds: 2.5
   topics:
     software_it:
-      # Arena refs: Software & IT Services, Coding
       provider: openrouter
-      model: your/software-model
+      model: google/gemma-4-31b:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    math:
+      provider: openrouter
+      model: google/gemma-4-31b:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    science:
+      provider: openrouter
+      model: google/gemma-4-31b:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
     business_finance:
-      # Arena ref: Business, Management, & Financial Ops
       provider: openrouter
-      model: your/business-finance-model
+      model: minimax/minimax-m2.5:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    legal_government:
+      provider: openrouter
+      model: minimax/minimax-m2.5:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    medicine_healthcare:
+      provider: openrouter
+      model: minimax/minimax-m2.5:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    writing_language:
+      provider: openrouter
+      model: google/gemma-4-31b:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    entertainment_media:
+      provider: openrouter
+      model: z-ai/glm-4.5-air:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
 ```
 
-### วิธีเลือกโมเดล
-
-1. เปิด Arena.ai
-2. เลือก leaderboard/category ที่ใกล้กับหัวข้อที่ต้องการ
-3. เลือก model ที่เชื่อถือจากหมวดนั้น
-4. เอา model มาใส่ที่ `topic_detect.topics.<topic>.model`
-
-ARC ใช้ Arena เป็น **reference taxonomy** ไม่ใช่ live data source
-
-### การอัปเดต
-
-ARC มี 2 ทางให้รู้ว่ามีอัปเดต:
-
-- Manual: รัน installer ด้วย `--check` เพื่อเทียบ version local กับ GitHub `plugin.yaml`
-- Runtime: หลัง Hermes restart, ARC จะเช็ค GitHub ครั้งเดียวแล้วเขียน log ถ้ามีเวอร์ชันใหม่กว่า โดยจะ **ไม่ spam ในข้อความ chat**
-
-ปิด runtime update check:
-
-```yaml
-topic_detect:
-  update_check:
-    enabled: false
-```
-
-ถ้าลบ topic block ออก หรือ topic นั้นไม่มี `provider`/`model` ARC จะไม่ส่ง
-runtime override สำหรับหัวข้อนั้น และ Hermes จะใช้ main/default model ต่อทันที
-นี่เป็นพฤติกรรมที่ตั้งใจไว้ เพื่อให้หมวดที่ specialist model ไม่คุ้มยัง fallback
-ได้อย่างปลอดภัย
-
-### Routing Modes
-
-| Mode | พฤติกรรม |
-|------|----------|
-| `keyword` | เร็ว — จับคู่คำสำคัญ |
-| `semantic` | ฉลาด — ใช้ LLM จำแนก |
-| `hybrid` | แนะนำ — keyword ก่อน, semantic เป็น fallback |
-
-### หัวข้อหลักที่รองรับ
-
-- `software_it` — Arena refs: Software & IT Services, Coding
-- `math` — Arena refs: Mathematical, Math
-- `science` — Arena ref: Life, Physical, & Social Science
-- `business_finance` — Arena ref: Business, Management, & Financial Ops
-- `legal_government` — Arena ref: Legal & Government
-- `medicine_healthcare` — Arena ref: Medicine & Healthcare
-- `writing_language` — Arena refs: Writing/Literature/Language, Creative Writing, Language, English, Non-English, language-specific boards
-- `entertainment_media` — Arena ref: Entertainment, Sports, & Media
-
-หมวด Arena อย่าง Expert, Hard Prompts, Instruction Following, Multi-Turn, Longer Query และ language-specific boards ถือเป็น modifier/future metadata ไม่ใช่ primary route ในเวอร์ชันนี้
-
-ข้อควรระวังของบางหมวด:
-
-- `entertainment_media` ควรถือเป็น optional เพราะคำถามหนัง/เกม/กีฬา/สื่อในชีวิตจริง
-  มักไม่จำเป็นต้องใช้ specialist model ถ้า main model ตอบได้ดีอยู่แล้ว สามารถไม่ใส่
-  model ของหมวดนี้เพื่อ fallback กลับ main model ได้
-- `writing_language` กว้างโดยตั้งใจ และมี tension ภายใน: creative writing ต้องการ
-  creativity/style ส่วน translation ต้องการ multilingual accuracy ถ้าอนาคตมี complaint
-  เรื่อง route ไม่ตรง หมวดนี้คือ candidate แรกที่ควร split หรือเพิ่ม metadata route
-
-`Exclude Ties` เป็น leaderboard filter ไม่เกี่ยวกับ ARC
-
-### Provider ที่ใช้ได้
-
-ทุก provider ที่ Hermes รองรับ:
-
-- **OpenRouter** — ใส่ `provider: openrouter` + `model:`
-- **OpenAI-compatible** (DeepSeek, vLLM, etc.) — ใส่ `provider:` + `base_url:` + `api_key:`
-- **OAuth provider** — ใส่ `provider:` อย่างเดียวได้ ถ้า Hermes จัดการ auth ให้ provider นั้น
+นี่เป็นแค่ตัวอย่าง default ที่ใช้งานได้จริง ARC **ไม่ดึงคะแนน Arena และไม่เลือกโมเดลให้อัตโนมัติ** ผู้ใช้ยังเป็นคนกำหนด mapping เอง
 
 ---
 
-## Signature
+## Topics ที่รองรับ
 
-เมื่อเปิดใช้งาน ท้ายแต่ละข้อความจะมีแท็ก:
+ARC ใช้ primary topic taxonomy ที่ align กับ Arena:
 
-```text
-- nemotron-3-super-120b-a12b [software_it]
-- owl-alpha [business_finance]
-- owl-alpha [general]
-```
+| Topic | ใช้กับอะไร |
+|---|---|
+| `software_it` | programming, debugging, infra, software/IT systems |
+| `math` | calculation, proofs, symbolic reasoning, quantitative problems |
+| `science` | science explanation, mechanisms, research-style questions |
+| `business_finance` | markets, finance, accounting, business operations, strategy |
+| `legal_government` | legal, policy, compliance, public-sector questions |
+| `medicine_healthcare` | medical/healthcare information และคำตอบที่ระวัง safety |
+| `writing_language` | writing, editing, translation, literature, language nuance |
+| `entertainment_media` | movies, games, sports, media analysis, pop culture |
 
-ปิดด้วย `signature.enabled: false`
+หมวด Arena เช่น Expert, Hard Prompts, Instruction Following, Multi-Turn, Longer Query และ language-specific boards ถือเป็น future metadata/modifier ไม่ใช่ primary route ใน version นี้
+
+---
+
+## Routing Modes
+
+| Mode | พฤติกรรม |
+|---|---|
+| `keyword` | deterministic keyword matching เร็วที่สุด |
+| `semantic` | ใช้ LLM classification |
+| `hybrid` | แนะนำ: keyword ก่อน semantic fallback |
+
+ค่าที่ควรรู้:
+
+- `min_confidence`: เพิ่มเพื่อลดการ route พลาด, ลดเพื่อ route ให้ aggressive ขึ้น
+- `inertia`: เพิ่มเพื่อลดการสลับหัวข้อถี่ใน multi-turn conversation
+- `semantic.min_confidence`: confidence ขั้นต่ำของ semantic classifier
 
 ---
 
@@ -172,12 +222,12 @@ hermes plugins list | grep topic_detect
 hermes logs | grep topic_detect
 ```
 
-Log ที่คาดหวัง:
+ตัวอย่าง log:
 
 ```text
 topic_detect: loaded
-topic_detect: switching provider=openrouter model=nvidia/nemotron-3-super-120b-a12b:free
-topic_detect: signature=- nemotron-3-super-120b-a12b [software_it]
+topic_detect: switching provider=openrouter model=google/gemma-4-31b:free
+topic_detect: signature=- gemma-4-31b:free [software_it]
 ```
 
 ---
@@ -185,13 +235,31 @@ topic_detect: signature=- nemotron-3-super-120b-a12b [software_it]
 ## แก้ปัญหา
 
 | ปัญหา | วิธีแก้ |
-|-------|--------|
-| Plugin ไม่โหลด | เช็ค `plugins.enabled` มี `topic_detect` และ `enabled: true` แล้ว restart |
-| หัวข้อไม่สลับ | ลด `min_confidence` เป็น `0.3` หรือใช้ `routing_mode: semantic` |
+|---|---|
+| Plugin ไม่โหลด | เช็ค `plugins.enabled` มี `topic_detect` แล้ว restart Hermes |
+| หัวข้อไม่สลับ | ลด `min_confidence` หรือใช้ `routing_mode: semantic` |
 | สลับบ่อยเกินไป | เพิ่ม `inertia` เป็น `3` หรือ `4` |
-| prompt ทั่วไปถูก route ผิด | ควรคืน `none`; เพิ่ม `min_confidence` ถ้าจำเป็น |
-| โมเดลไม่สลับ provider | รัน `python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check` แล้ว patch ถ้าจำเป็น |
-| Persona ไม่ถูกใส่ | เหมือนด้านบน — patch Hermes core เพื่อรองรับ `system_prompt` override |
+| prompt ทั่วไปถูก route ผิด | เพิ่ม `min_confidence`; prompt ไม่ชัดควรเป็น internal `none` / display `[general]` |
+| model/provider ไม่สลับ | รัน `python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check` แล้ว apply compatibility patch ถ้าจำเป็น |
+| persona ไม่ถูกใส่ | เหมือนด้านบน; Hermes core รุ่นเก่าต้องรองรับ runtime system-prompt override |
+
+---
+
+## Roadmap
+
+- **v1:** Topic-aware runtime model routing
+- **v1.x:** Compatibility ที่สะอาดขึ้นหลัง upstream `pre_llm_call` runtime override ถูก merge
+- **v2:** Complexity-aware routing: simple vs hard prompts, latency/cost preference, reasoning depth
+- **v3:** Smart-router interface ที่ต่อ external router แบบ Manifest-style ได้
+
+---
+
+## Design Principles
+
+- **Configurable, not magical.** ผู้ใช้เลือก model mapping เอง
+- **Main model is the safe fallback.** ไม่มั่นใจหัวข้อ → ไม่ override
+- **Transparent but quiet.** มี signature เล็ก ๆ ไม่รก chat
+- **Plugin first, core-friendly later.** ARC พิสูจน์ behavior วันนี้ และ align กับ Hermes core hook ที่สะอาดกว่าในอนาคต
 
 ---
 

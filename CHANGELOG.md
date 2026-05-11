@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2 - 2026-05-11
+
+### Changed
+- Polished README/README_TH positioning for Hermes ARC as a practical reference implementation for topic-aware runtime model routing.
+- Added upstream Hermes issue links, clean smart-router architecture direction, roadmap, and current recommended model mapping examples.
+
 ## 1.1.1 - 2026-05-11
 
 ### Changed

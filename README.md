@@ -1,23 +1,80 @@
 # ⚡ Hermes ARC — Adaptive Routing Core
 
-> **Smart multi-agent orchestration for Hermes Agent.**<br>
-> Routes conversations by Arena.ai-aligned topic — switching models, personas, and prompts in real time.
+> **A practical reference implementation for topic-aware runtime model routing in Hermes Agent.**  
+> ARC detects what the user is talking about, then routes that turn to the model/persona best suited for the topic.
 
-**English** · [ไทย](README_TH.md)
+<p align="center">
+  <strong>Topic-aware routing</strong> · <strong>Runtime model switching</strong> · <strong>Arena-aligned taxonomy</strong> · <strong>Hermes plugin</strong>
+</p>
+
+<p align="center">
+  <a href="README_TH.md">ไทย</a> · <strong>English</strong>
+</p>
+
+---
+
+## Why ARC Exists
+
+Hermes can run with one powerful main model for every task, but that is not always ideal:
+
+- Coding questions may benefit from a coding-strong model.
+- Finance questions may benefit from a business/finance model.
+- Creative or media questions may not need the same expensive reasoning model.
+- Simple/general chat should stay on the main model without unnecessary switching.
+
+**Hermes ARC turns model routing into a plugin-level capability:**
+
+```text
+User message
+  → classify topic
+  → choose configured model/persona
+  → call Hermes with a runtime override
+  → append a small routing signature
+```
+
+ARC is intentionally small and practical. It does not claim to be a full smart-router yet. It is a working foundation for that direction.
 
 ---
 
 ## What It Does
 
-ARC watches what you're talking about and automatically:
+- **Detects the topic** with keyword, semantic, or hybrid routing.
+- **Switches model/provider at runtime** based on `topic_detect.topics`.
+- **Adds a topic persona** from `AGENTS.md` so the routed model behaves like a specialist.
+- **Falls back safely** to the main Hermes model when no specialized topic is confident enough.
+- **Shows a signature** so users can see what route was used.
 
-- **Switches models** — software questions go to a software/coding model, finance questions to a business/finance model, etc.
-- **Injects personas** — each topic gets a tailored system prompt (expert persona)
-- **Shows a signature** — a small tag at the end of each response shows which model/topic was used
+Example signatures:
 
-Topics are aligned with Arena.ai leaderboard categories so users can choose models by checking Arena themselves and putting their chosen model into config. ARC does **not** fetch Arena scores or choose models automatically.
+```text
+- gemma-4-31b:free [software_it]
+- minimax-m2.5:free [business_finance]
+- glm-4.5-air:free [entertainment_media]
+- gpt-5.5 [general]
+```
 
-If no specialized topic matches with enough confidence, ARC returns `none` and Hermes uses the main/default model. There is deliberately no `general` topic.
+Internally, ARC still uses `none` for “no specialist topic matched.” The user-facing signature renders that as `[general]` because it is clearer.
+
+---
+
+## Relationship to Hermes Core
+
+ARC currently works as a Hermes plugin and may use a compatibility patch on Hermes versions where `pre_llm_call` cannot yet apply runtime overrides.
+
+Related upstream work:
+
+- Smart routing discussion: https://github.com/NousResearch/hermes-agent/issues/21827
+- Core primitive proposal: https://github.com/NousResearch/hermes-agent/issues/23739
+
+If Hermes core adds native `pre_llm_call` runtime overrides, ARC can remove the monkey-patch path and use that hook directly.
+
+Clean target architecture:
+
+```text
+Hermes core pre_llm_call runtime override
+  → router plugins/providers
+  → topic routing, complexity routing, Manifest-style smart routing
+```
 
 ---
 
@@ -26,8 +83,6 @@ If no specialized topic matches with enough confidence, ARC returns `none` and H
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
 ```
-
-The installer handles everything: plugin files, config, and runtime compatibility check.
 
 Check for updates without installing:
 
@@ -41,18 +96,18 @@ Update explicitly:
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --update
 ```
 
-After install, set your API key:
+After install, add your provider key, for example OpenRouter:
 
 ```bash
-echo '<provider-your-use>_API_KEY=<your-key>' >> ~/.hermes/.env
+echo 'OPENROUTER_API_KEY=<your-key>' >> ~/.hermes/.env
 hermes gateway restart
 ```
 
 ---
 
-## Configuration
+## Recommended Config
 
-Minimal `~/.hermes/config.yaml`:
+Add or update this section in `~/.hermes/config.yaml`:
 
 ```yaml
 plugins:
@@ -62,107 +117,101 @@ plugins:
 topic_detect:
   enabled: true
   routing_mode: hybrid
+  inertia: 2
+  min_confidence: 0.45
+  agents_file: ~/.hermes/plugins/topic_detect/AGENTS.md
+  semantic:
+    enabled: true
+    provider: openrouter
+    model: baidu/cobuddy:free
+    min_confidence: 0.7
+    base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
   signature:
     enabled: true
   update_check:
     enabled: true
-    # Checked once after each Hermes restart; logged only, never appended to chat.
     url: https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/plugin.yaml
     timeout_seconds: 2.5
   topics:
     software_it:
-      # Arena refs: Software & IT Services, Coding
       provider: openrouter
-      model: your/software-model
+      model: google/gemma-4-31b:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    math:
+      provider: openrouter
+      model: google/gemma-4-31b:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    science:
+      provider: openrouter
+      model: google/gemma-4-31b:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
     business_finance:
-      # Arena ref: Business, Management, & Financial Ops
       provider: openrouter
-      model: your/business-finance-model
+      model: minimax/minimax-m2.5:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    legal_government:
+      provider: openrouter
+      model: minimax/minimax-m2.5:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    medicine_healthcare:
+      provider: openrouter
+      model: minimax/minimax-m2.5:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    writing_language:
+      provider: openrouter
+      model: google/gemma-4-31b:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+    entertainment_media:
+      provider: openrouter
+      model: z-ai/glm-4.5-air:free
+      base_url: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
 ```
 
-### Choosing Models
-
-1. Open Arena.ai.
-2. Select the leaderboard/category closest to your topic.
-3. Pick the model you trust from that category.
-4. Put that model into `topic_detect.topics.<topic>.model`.
-
-ARC uses Arena as a **reference taxonomy**, not as a live data source.
-
-### Updates
-
-ARC has two update discovery paths:
-
-- Manual: run installer with `--check` to compare local vs GitHub `plugin.yaml` version.
-- Runtime: after Hermes restarts, ARC checks GitHub once and logs if a newer version exists. It does **not** spam user-visible chat responses.
-
-Disable runtime checks:
-
-```yaml
-topic_detect:
-  update_check:
-    enabled: false
-```
-
-If a topic block is omitted, or a topic has no `provider`/`model`, ARC skips
-the runtime override for that topic and Hermes keeps the main/default model.
-This is intentional: categories with low specialist-model ROI can still be
-classified for logging/signature without forcing a weaker route.
-
-### Routing Modes
-
-| Mode | Behavior |
-|------|----------|
-| `keyword` | Fast — keyword matching |
-| `semantic` | Smart — LLM-based classification |
-| `hybrid` | Recommended — keyword first, semantic fallback |
-
-### Supported Primary Topics
-
-- `software_it` — Arena refs: Software & IT Services, Coding
-- `math` — Arena refs: Mathematical, Math
-- `science` — Arena ref: Life, Physical, & Social Science
-- `business_finance` — Arena ref: Business, Management, & Financial Ops
-- `legal_government` — Arena ref: Legal & Government
-- `medicine_healthcare` — Arena ref: Medicine & Healthcare
-- `writing_language` — Arena refs: Writing/Literature/Language, Creative Writing, Language, English, Non-English, language-specific boards
-- `entertainment_media` — Arena ref: Entertainment, Sports, & Media
-
-Arena categories like Expert, Hard Prompts, Instruction Following, Multi-Turn, Longer Query, and language-specific boards are treated as modifiers/future metadata, not primary routes in this version.
-
-Topic caveats:
-
-- `entertainment_media` is intentionally optional. Movie/game/sports/media
-  prompts often do not need a specialist model; leave its model unset if your
-  main model handles these well.
-- `writing_language` is broad by design and contains an internal tension:
-  creative writing favors creativity/style, while translation favors
-  multilingual precision. If users complain about this route later, this is the
-  likely first candidate to split into subroutes or metadata-based routing.
-
-`Exclude Ties` is a leaderboard filter and is not used by ARC.
-
-### Provider Support
-
-Any provider Hermes supports works as a topic target:
-
-- **OpenRouter** — set `provider: openrouter` + `model:`
-- **OpenAI-compatible** (DeepSeek, vLLM, etc.) — set `provider:` + `base_url:` + `api_key:`
-- **OAuth providers** — set `provider:`, no `api_key` needed if Hermes handles auth for that provider
+These are only example defaults. ARC does **not** fetch Arena scores or choose models automatically. You remain in control of the model mapping.
 
 ---
 
-## Signature
+## Supported Topics
 
-When enabled, each response ends with a routing tag:
+ARC uses an Arena-aligned primary topic taxonomy:
 
-```text
-- nemotron-3-super-120b-a12b [software_it]
-- owl-alpha [business_finance]
-- owl-alpha [general]
-```
+| Topic | Intended use |
+|---|---|
+| `software_it` | Programming, debugging, infrastructure, software/IT systems |
+| `math` | Calculation, proofs, symbolic reasoning, quantitative problems |
+| `science` | Natural/social science explanations, mechanisms, research-style questions |
+| `business_finance` | Markets, finance, accounting, business operations, strategy |
+| `legal_government` | Legal, policy, compliance, public-sector questions |
+| `medicine_healthcare` | Medical/healthcare information and safety-aware explanations |
+| `writing_language` | Writing, editing, translation, literature, language nuance |
+| `entertainment_media` | Movies, games, sports, media analysis, pop culture |
 
-Disable with `signature.enabled: false`.
+Arena categories such as Expert, Hard Prompts, Instruction Following, Multi-Turn, Longer Query, and language-specific boards are treated as future metadata/modifiers, not primary routes in this version.
+
+---
+
+## Routing Modes
+
+| Mode | Behavior |
+|---|---|
+| `keyword` | Fast deterministic keyword matching |
+| `semantic` | LLM-based classification |
+| `hybrid` | Recommended: keyword first, semantic fallback |
+
+Useful knobs:
+
+- `min_confidence`: raise it to reduce accidental routing, lower it to route more aggressively.
+- `inertia`: raise it to avoid frequent topic switching in multi-turn conversations.
+- `semantic.min_confidence`: controls how confident the semantic classifier must be before it wins.
 
 ---
 
@@ -173,12 +222,12 @@ hermes plugins list | grep topic_detect
 hermes logs | grep topic_detect
 ```
 
-Expected log:
+Expected style of logs:
 
 ```text
 topic_detect: loaded
-topic_detect: switching provider=openrouter model=nvidia/nemotron-3-super-120b-a12b:free
-topic_detect: signature=- nemotron-3-super-120b-a12b [software_it]
+topic_detect: switching provider=openrouter model=google/gemma-4-31b:free
+topic_detect: signature=- gemma-4-31b:free [software_it]
 ```
 
 ---
@@ -186,13 +235,31 @@ topic_detect: signature=- nemotron-3-super-120b-a12b [software_it]
 ## Troubleshooting
 
 | Problem | Fix |
-|---------|-----|
-| Plugin not loading | Check `plugins.enabled` contains `topic_detect` and `enabled: true`, then restart |
-| Topic not switching | Lower `min_confidence` to `0.3`, or use `routing_mode: semantic` |
+|---|---|
+| Plugin not loading | Check `plugins.enabled` contains `topic_detect`, then restart Hermes |
+| Topic not switching | Lower `min_confidence`, or use `routing_mode: semantic` |
 | Too many switches | Raise `inertia` to `3` or `4` |
-| Unclear/general prompts route unexpectedly | They should return `none`; raise `min_confidence` if needed |
-| Model not switching provider | Run `python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check` and patch if needed |
-| Persona not injecting | Same as above — patch Hermes core for `system_prompt` override support |
+| General prompts route unexpectedly | Raise `min_confidence`; unclear prompts should resolve to internal `none` / display `[general]` |
+| Model/provider not switching | Run `python3 ~/.hermes/plugins/topic_detect/patch_run_agent.py --check` and apply compatibility patch if needed |
+| Persona not injecting | Same as above; older Hermes core needs runtime system-prompt override support |
+
+---
+
+## Roadmap
+
+- **v1:** Topic-aware runtime model routing.
+- **v1.x:** Cleaner compatibility with upstream `pre_llm_call` runtime overrides once merged.
+- **v2:** Complexity-aware routing: simple vs hard prompts, latency/cost preference, reasoning depth.
+- **v3:** Smart-router interface that can integrate external routers such as Manifest-style systems.
+
+---
+
+## Design Principles
+
+- **Router is configurable, not magical.** Users choose their own models.
+- **Main model remains the safe fallback.** No confident topic → no specialist override.
+- **Small visible signature.** Routing is transparent but not noisy.
+- **Plugin first, core-friendly later.** ARC proves behavior now while aligning with cleaner Hermes core hooks.
 
 ---
 
