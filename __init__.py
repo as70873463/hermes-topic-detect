@@ -286,9 +286,12 @@ def _pre_llm_call_impl(**kwargs):
         updates,
     )
 
-    response_suffix = ""
     if cfg.signature_enabled and _core_supports_response_suffix():
-        response_suffix = f"\n\n{signature}"
+        # Patched Hermes cores consume response_suffix from runtime_override.
+        # Keep it inside the same dict the core already merges; a top-level
+        # response_suffix is ignored by older ARC patches in run_agent.py.
+        updates = dict(updates)
+        updates["response_suffix"] = f"\n\n{signature}"
         _LAST_SIGNATURE = None
     elif cfg.signature_enabled:
         # Compatibility with Hermes builds that do not yet consume
@@ -300,7 +303,6 @@ def _pre_llm_call_impl(**kwargs):
 
     return {
         "runtime_override": updates,
-        "response_suffix": response_suffix,
     }
 
 def register(ctx):

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.5 - 2026-05-11
+
+### Fixed
+- Restore visible topic signatures on patched Hermes cores by placing `response_suffix` inside `runtime_override`, where the ARC core patch reads it. Keeps the legacy `transform_llm_output` fallback for older cores without duplicating signatures.
+
 ## 1.1.4 - 2026-05-11
 
 ### Fixed
