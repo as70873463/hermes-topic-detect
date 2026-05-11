@@ -141,8 +141,8 @@ def check_runtime_override_handling(content: str) -> dict:
         or re.search(r'runtime_override.*provider', content, re.DOTALL)
     )
     results["applies_system_prompt_override"] = bool(
-        "_plugin_system_prompt" in content
-        or re.search(r'runtime_override.*system_prompt', content, re.DOTALL)
+        "plugin_system_prompt" in content
+        and "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content
     )
     results["uses_switch_model_runtime"] = bool(
         "switch_model(" in content
@@ -498,6 +498,25 @@ def apply_patch(path: Path, content: str) -> str:
             print("⚠️  Could not locate old ARC runtime block — upgrade skipped")
 
     if "HERMES_ARC_SYSTEM_PROMPT_PATCH" not in new_content:
+        # Patch 1: Add plugin_system_prompt parameter to _handle_max_iterations signature
+        sig_old = (
+            '    def _handle_max_iterations(self, messages: list, api_call_count: int) -> str:\n'
+        )
+        sig_new = (
+            '    def _handle_max_iterations(\n'
+            '        self,\n'
+            '        messages: list,\n'
+            '        api_call_count: int,\n'
+            '        plugin_system_prompt: str = "",\n'
+            '    ) -> str:\n'
+        )
+        if sig_old in new_content:
+            new_content = new_content.replace(sig_old, sig_new, 1)
+        else:
+            print("⚠️  Could not locate _handle_max_iterations signature — system_prompt patch skipped")
+            return new_content
+
+        # Patch 2: Use the parameter instead of the undefined local variable
         sys_old = (
             '            if self.ephemeral_system_prompt:\n'
             '                effective_system = (effective_system + "\\n\\n" + self.ephemeral_system_prompt).strip()\n'
@@ -506,13 +525,30 @@ def apply_patch(path: Path, content: str) -> str:
             '            if self.ephemeral_system_prompt:\n'
             '                effective_system = (effective_system + "\\n\\n" + self.ephemeral_system_prompt).strip()\n'
             '            # HERMES_ARC_SYSTEM_PROMPT_PATCH: topic/persona prompt from runtime_override\n'
-            '            if _plugin_system_prompt:\n'
-            '                effective_system = (effective_system + "\\n\\n" + _plugin_system_prompt).strip()\n'
+            '            if plugin_system_prompt:\n'
+            '                effective_system = (effective_system + "\\n\\n" + plugin_system_prompt).strip()\n'
         )
         if sys_old in new_content:
             new_content = new_content.replace(sys_old, sys_new, 1)
         else:
             print("⚠️  Could not locate effective_system block — system_prompt patch skipped")
+
+        # Patch 3: Pass _plugin_system_prompt when calling _handle_max_iterations from run_conversation
+        call_old = (
+            '            final_response = self._handle_max_iterations(messages, api_call_count)\n'
+        )
+        call_new = (
+            '            final_response = self._handle_max_iterations(\n'
+            '                messages,\n'
+            '                api_call_count,\n'
+            '                plugin_system_prompt=_plugin_system_prompt,\n'
+            '            )\n'
+        )
+        if call_old in new_content:
+            new_content = new_content.replace(call_old, call_new, 1)
+        else:
+            print("⚠️  Could not locate _handle_max_iterations call site — system_prompt patch skipped")
+
 
     if "HERMES_ARC_RESPONSE_SUFFIX_PATCH" not in new_content:
         final_response_pattern = re.compile(
@@ -555,11 +591,12 @@ def verify_patch(path: Path) -> bool:
 
     checks = {
         "HERMES_ARC_PATCH marker": "HERMES_ARC_PATCH" in content,
-        "system_prompt injection": "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content or "_plugin_system_prompt" in content,
+        "system_prompt injection": "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content or "plugin_system_prompt" in content,
         "response_suffix append": "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content,
         "pre_llm_call hook intact": "pre_llm_call" in content,
         "runtime_override handling": "runtime_override" in content,
         "switch_model runtime routing": "_arc_resolve_provider_client" in content and "restore_main" in content,
+        "max_iterations accepts plugin_system_prompt": 'def _handle_max_iterations(' in content and "plugin_system_prompt: str" in content,
     }
 
     all_ok = True
