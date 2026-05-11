@@ -4,8 +4,9 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --check
 #   curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash -s -- --patch-runtime
-#   bash install.sh [--plugin-dir PATH] [--run-agent-path PATH] [--no-restart] [--patch-runtime|--no-patch-runtime]
+#   bash install.sh [--check|--update] [--plugin-dir PATH] [--run-agent-path PATH] [--no-restart] [--patch-runtime|--no-patch-runtime]
 
 set -euo pipefail
 
@@ -17,10 +18,14 @@ PATCH_RUNTIME="prompt" # prompt | yes | no
 RUN_AGENT_PATH=""
 CONFIGURE=true
 CONFIG_PATH="${HOME}/.hermes/config.yaml"
+CHECK_ONLY=false
+UPDATE_REQUESTED=false
 
 # ── Parse args ──────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --check) CHECK_ONLY=true; shift ;;
+    --update) UPDATE_REQUESTED=true; shift ;;
     --plugin-dir) PLUGIN_DIR="$2"; shift 2 ;;
     --run-agent-path) RUN_AGENT_PATH="$2"; shift 2 ;;
     --config-path) CONFIG_PATH="$2"; shift 2 ;;
@@ -29,7 +34,11 @@ while [[ $# -gt 0 ]]; do
     --patch-runtime) PATCH_RUNTIME="yes"; shift ;;
     --no-patch-runtime) PATCH_RUNTIME="no"; shift ;;
     -h|--help)
-      echo "Usage: bash install.sh [--plugin-dir PATH] [--config-path PATH] [--run-agent-path PATH] [--no-config] [--no-restart] [--patch-runtime|--no-patch-runtime]"
+      echo "Usage: bash install.sh [--check|--update] [--plugin-dir PATH] [--config-path PATH] [--run-agent-path PATH] [--no-config] [--no-restart] [--patch-runtime|--no-patch-runtime]"
+      echo ""
+      echo "Update options:"
+      echo "  --check              Compare local ARC version with latest GitHub version and exit"
+      echo "  --update             Explicitly run install/update flow (same as default, clearer for users)"
       echo ""
       echo "Config options:"
       echo "  --config-path PATH    Target Hermes config.yaml (default: ~/.hermes/config.yaml)"
@@ -51,6 +60,61 @@ echo "🧊 Hermes ARC (Adaptive Routing Core) — Installer"
 echo "   Plugin name : topic_detect"
 echo "   Target dir  : ${PLUGIN_DIR}"
 echo ""
+
+get_yaml_version() {
+  local path_or_url="$1"
+  if [[ "$path_or_url" == http://* || "$path_or_url" == https://* ]]; then
+    curl -fsSL "$path_or_url" 2>/dev/null | python3 -c 'import sys,yaml; print((yaml.safe_load(sys.stdin.read()) or {}).get("version","0.0.0"))'
+  elif [[ -f "$path_or_url" ]]; then
+    python3 -c 'import sys,yaml,pathlib; print((yaml.safe_load(pathlib.Path(sys.argv[1]).read_text()) or {}).get("version","0.0.0"))' "$path_or_url"
+  else
+    echo "0.0.0"
+  fi
+}
+
+version_gt() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+def parse(v):
+    out=[]
+    for part in v.strip().lstrip('v').split('.'):
+        digits=''
+        for ch in part:
+            if ch.isdigit(): digits += ch
+            else: break
+        out.append(int(digits or 0))
+    return out or [0]
+a,b=parse(sys.argv[1]),parse(sys.argv[2])
+n=max(len(a),len(b))
+a += [0]*(n-len(a)); b += [0]*(n-len(b))
+raise SystemExit(0 if a>b else 1)
+PY
+}
+
+if [[ "${CHECK_ONLY}" == true ]]; then
+  if ! command -v python3 &>/dev/null; then echo "❌ python3 not found"; exit 1; fi
+  if ! python3 - <<'PY' >/dev/null 2>&1
+import yaml
+PY
+  then echo "❌ PyYAML is required for --check"; exit 1; fi
+  LOCAL_VERSION="$(get_yaml_version "${PLUGIN_DIR}/plugin.yaml")"
+  LATEST_VERSION="$(get_yaml_version "${REPO_RAW}/plugin.yaml" || echo "0.0.0")"
+  echo "Local version : ${LOCAL_VERSION}"
+  echo "Latest version: ${LATEST_VERSION}"
+  if version_gt "${LATEST_VERSION}" "${LOCAL_VERSION}"; then
+    echo "Update available: yes"
+    echo "Run:"
+    echo "  curl -fsSL ${REPO_RAW}/install.sh | bash -s -- --update"
+    exit 0
+  fi
+  echo "Update available: no"
+  exit 0
+fi
+
+if [[ "${UPDATE_REQUESTED}" == true ]]; then
+  echo "Update mode: installing latest ARC files from ${REPO_RAW}"
+  echo ""
+fi
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 if ! command -v hermes &>/dev/null; then
@@ -80,8 +144,10 @@ FILES=(
   patch_run_agent.py
   AGENTS.md
   plugin.yaml
+  update_checker.py
   README.md
   README_TH.md
+  CHANGELOG.md
 )
 
 # ── Download or copy ────────────────────────────────────────────────────────
@@ -355,6 +421,18 @@ elif not isinstance(signature, dict):
     sys.exit(1)
 ensure("enabled", True, signature)
 
+update_check = section.get("update_check")
+if update_check is None:
+    update_check = {}
+    section["update_check"] = update_check
+    changed = True
+elif not isinstance(update_check, dict):
+    print("❌ topic_detect.update_check must be a mapping/object. Please fix manually.")
+    sys.exit(1)
+ensure("enabled", True, update_check)
+ensure("url", "https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/plugin.yaml", update_check)
+ensure("timeout_seconds", 2.5, update_check)
+
 topics = section.get("topics")
 if topics is None:
     topics = {}
@@ -386,22 +464,18 @@ for tname, tval in list(topics.items()):
                 changed = True
                 print(f"   🧹 Removed unresolved api_key from topics.{tname}")
 
-ring = "inclusionai/ring-2.6-1t:free"
-cobuddy = "baidu/cobuddy:free"
+nemotron = "nvidia/nemotron-3-super-120b-a12b:free"
 owl = "openrouter/owl-alpha"
+gpt_oss = "openai/gpt-oss-120b:free"
 required_topics = {
-    "programming": ring,
-    "finance": ring,
-    "science": ring,
-    "academia": ring,
-    "marketing": cobuddy,
-    "roleplay": cobuddy,
-    "trivia": cobuddy,
-    "translation": owl,
-    "legal": owl,
-    "health": owl,
-    "seo": owl,
-    "technology": owl,
+    "software_it": nemotron,
+    "math": owl,
+    "science": owl,
+    "business_finance": owl,
+    "legal_government": owl,
+    "medicine_healthcare": owl,
+    "writing_language": gpt_oss,
+    "entertainment_media": owl,
 }
 for name, model in required_topics.items():
     current = topics.get(name)
@@ -409,11 +483,13 @@ for name, model in required_topics.items():
         topics[name] = target(model)
         changed = True
     elif isinstance(current, dict):
-        # Preserve user choices; only fill missing required fields.
-        for k, v in target(model).items():
-            if k not in current or current[k] is None:
-                current[k] = v
-                changed = True
+        # Preserve user choices. If provider/model are intentionally missing or
+        # empty, keep that topic as a graceful fallback-to-main route.
+        if current.get("provider") and current.get("model"):
+            for k, v in target(model).items():
+                if k not in current or current[k] is None:
+                    current[k] = v
+                    changed = True
     else:
         print(f"❌ topic_detect.topics.{name} must be a mapping/object. Please fix manually.")
         sys.exit(1)

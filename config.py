@@ -18,6 +18,13 @@ class Target:
 
 
 @dataclass
+class UpdateCheckConfig:
+    enabled: bool
+    url: str
+    timeout_seconds: float
+
+
+@dataclass
 class TopicDetectConfig:
     enabled: bool
     routing_mode: str
@@ -37,6 +44,8 @@ class TopicDetectConfig:
 
     signature_enabled: bool
 
+    update_check: UpdateCheckConfig
+
     agents_file: str | None
 
 
@@ -50,10 +59,16 @@ def _expand_env(value: Any, *, none_if_unresolved: bool = False) -> Any:
     return value
 
 
-def _target_from_dict(data: dict[str, Any]) -> Target:
+def _target_from_dict(data: dict[str, Any]) -> Target | None:
+    provider = data.get("provider")
+    model = data.get("model")
+
+    if not provider or not model:
+        return None
+
     return Target(
-        provider=str(data["provider"]),
-        model=str(data["model"]),
+        provider=str(provider),
+        model=str(model),
         base_url=_expand_env(data.get("base_url")),
         api_key=_expand_env(data.get("api_key"), none_if_unresolved=True),
         system_prompt=data.get("system_prompt"),
@@ -69,6 +84,9 @@ def load_config() -> TopicDetectConfig:
 
     semantic = section.get("semantic", {})
     signature = section.get("signature", {})
+    update_check = section.get("update_check", {})
+    if not isinstance(update_check, dict):
+        update_check = {}
 
     enabled = bool(
         section.get("enabled", True)
@@ -121,6 +139,19 @@ def load_config() -> TopicDetectConfig:
         signature.get("enabled", True)
     )
 
+    update_check_enabled = bool(
+        update_check.get("enabled", True)
+    )
+    update_check_url = str(
+        update_check.get(
+            "url",
+            "https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/plugin.yaml",
+        )
+    )
+    update_check_timeout = float(
+        update_check.get("timeout_seconds", 2.5)
+    )
+
     agents_file = str(
         section.get(
             "agents_file",
@@ -142,9 +173,16 @@ def load_config() -> TopicDetectConfig:
         # model/provider override; Hermes keeps using the main `model:` config.
         default=None,
 
+        # Topics with no provider/model are intentionally skipped. This lets a
+        # category (notably entertainment_media) classify for logging/signature
+        # but gracefully fall back to Hermes' main model if no specialist model
+        # is configured for that category.
         topics={
-            name: _target_from_dict(value)
+            name: target
             for name, value in topics_data.items()
+            if isinstance(value, dict)
+            for target in [_target_from_dict(value)]
+            if target is not None
         },
 
         semantic_provider=semantic_provider,
@@ -155,6 +193,12 @@ def load_config() -> TopicDetectConfig:
         semantic_api_key=semantic_api_key,
 
         signature_enabled=signature_enabled,
+
+        update_check=UpdateCheckConfig(
+            enabled=update_check_enabled,
+            url=update_check_url,
+            timeout_seconds=update_check_timeout,
+        ),
 
         agents_file=agents_file,
     )

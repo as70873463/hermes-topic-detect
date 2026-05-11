@@ -9,12 +9,14 @@ from .config import load_config
 from .semantic import semantic_classify
 from .signature import build_signature
 from .state import TopicState
+from .update_checker import maybe_log_update_notice
 
 logger = logging.getLogger("topic_detect")
 
 _TOPIC_STATE = TopicState()
 _LAST_RUNTIME: dict[str, Any] | None = None
 _LAST_SIGNATURE: str | None = None
+_UPDATE_NOTICE_CHECKED = False
 
 
 def _extract_messages(kwargs: dict[str, Any]) -> list[str]:
@@ -89,13 +91,17 @@ def _pre_llm_call(**kwargs):
 
 
 def _pre_llm_call_impl(**kwargs):
-    global _LAST_RUNTIME, _LAST_SIGNATURE
+    global _LAST_RUNTIME, _LAST_SIGNATURE, _UPDATE_NOTICE_CHECKED
 
     cfg = load_config()
 
     if not cfg.enabled:
         logger.info("topic_detect: disabled")
         return None
+
+    if not _UPDATE_NOTICE_CHECKED:
+        _UPDATE_NOTICE_CHECKED = True
+        maybe_log_update_notice(cfg)
 
     messages = _extract_messages(kwargs)
 

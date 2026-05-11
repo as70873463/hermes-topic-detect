@@ -22,17 +22,27 @@ class TopicState:
             float(inertia) * 0.8,
         )
 
-        # Low confidence handling
+        # Low confidence / no-topic handling.
+        #
+        # Deliberately reset to "none" instead of keeping the previous topic:
+        # topic_detect has no "general" route, so unclear prompts should fall
+        # back to Hermes' main/default model rather than letting a stale domain
+        # model keep handling unrelated conversation.
         if (
             not new_topic
             or new_topic == "none"
             or new_conf < min_conf
         ):
-            if self.current_topic:
+            old = self.current_topic
+            self.current_topic = None
+            self.candidate_topic = None
+            self.candidate_score = 0.0
+
+            if old:
                 return (
-                    self.current_topic,
+                    "none",
                     False,
-                    "low_conf_keep_current",
+                    f"low_conf_reset_from_{old}",
                 )
 
             return (
