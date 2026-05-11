@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.6 - 2026-05-11
+
+### Fixed
+- Installer no longer prints `Removed unresolved api_key` and then re-adds the same `${OPENROUTER_API_KEY}` placeholder to topic targets. It now treats `OPENROUTER_API_KEY` in `~/.hermes/.env` as resolvable, and only omits/removes the placeholder when the key is unavailable from both the process environment and `.env`.
+
 ## 1.1.5 - 2026-05-11
 
 ### Fixed

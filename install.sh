@@ -380,15 +380,35 @@ elif not isinstance(section, dict):
     sys.exit(1)
 
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+OPENROUTER_KEY_ENV = "OPENROUTER_API_KEY"
 OPENROUTER_KEY = "${OPENROUTER_API_KEY}"
 
+def env_key_available(name: str) -> bool:
+    if os.environ.get(name):
+        return True
+    env_path = Path.home() / ".hermes" / ".env"
+    if not env_path.exists():
+        return False
+    for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k, v = s.split("=", 1)
+        if k.strip() == name and v.strip().strip('"').strip("'"):
+            return True
+    return False
+
+OPENROUTER_KEY_AVAILABLE = env_key_available(OPENROUTER_KEY_ENV)
+
 def target(model: str) -> dict:
-    return {
+    data = {
         "provider": "openrouter",
         "model": model,
         "base_url": OPENROUTER_BASE,
-        "api_key": OPENROUTER_KEY,
     }
+    if OPENROUTER_KEY_AVAILABLE:
+        data["api_key"] = OPENROUTER_KEY
+    return data
 
 ensure("enabled", True, section)
 ensure("routing_mode", "hybrid", section)
@@ -409,7 +429,12 @@ ensure("provider", "openrouter", semantic)
 ensure("model", "baidu/cobuddy:free", semantic)
 ensure("min_confidence", 0.70, semantic)
 ensure("base_url", OPENROUTER_BASE, semantic)
-ensure("api_key", OPENROUTER_KEY, semantic)
+if OPENROUTER_KEY_AVAILABLE:
+    ensure("api_key", OPENROUTER_KEY, semantic)
+elif isinstance(semantic.get("api_key"), str) and semantic["api_key"].startswith("${") and semantic["api_key"].endswith("}"):
+    del semantic["api_key"]
+    changed = True
+    print("   🧹 Removed unresolved api_key from topic_detect.semantic")
 
 signature = section.get("signature")
 if signature is None:
@@ -525,7 +550,7 @@ for tname, tval in list(topics.items()):
         if isinstance(tkey, str) and tkey.startswith("${") and tkey.endswith("}"):
             # Only remove if the env var is actually unset.
             env_var = tkey[2:-1].split(":")[0]
-            if not os.environ.get(env_var):
+            if not env_key_available(env_var):
                 del tval["api_key"]
                 changed = True
                 print(f"   🧹 Removed unresolved api_key from topics.{tname}")
