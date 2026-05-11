@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.7 - 2026-05-11
+
+### Fixed
+- `patch_run_agent.py` no longer injects code referencing `_plugin_system_prompt` as a local variable inside `_handle_max_iterations()`. That variable only exists in `run_conversation()` scope and caused a `NameError` at runtime when max iterations was reached with a plugin system_prompt override. The patcher now adds `plugin_system_prompt: str = ""` as a parameter to `_handle_max_iterations`, uses the parameter in the injected code, and passes `_plugin_system_prompt` from the call site. Matches the fix in NousResearch/hermes-agent PR #23898.
+
 ## 1.1.6 - 2026-05-11
 
 ### Fixed
