@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from .agent_loader import get_agent_prompt
@@ -17,6 +18,7 @@ _TOPIC_STATE = TopicState()
 _LAST_RUNTIME: dict[str, Any] | None = None
 _LAST_SIGNATURE: str | None = None
 _UPDATE_NOTICE_CHECKED = False
+_CORE_RESPONSE_SUFFIX_SUPPORTED: bool | None = None
 
 
 def _extract_messages(kwargs: dict[str, Any]) -> list[str]:
@@ -72,6 +74,37 @@ def _runtime_updates(target) -> dict[str, Any]:
         updates["system_prompt"] = target.system_prompt
 
     return updates
+
+
+def _core_supports_response_suffix() -> bool:
+    """Return True when Hermes core consumes runtime_override.response_suffix.
+
+    Hermes ARC used transform_llm_output as a compatibility path before the
+    core runtime_override patch learned to append response_suffix directly.
+    If both paths run, signatures are duplicated. Detect the patched core
+    once and choose exactly one signature path per process.
+    """
+
+    global _CORE_RESPONSE_SUFFIX_SUPPORTED
+
+    if _CORE_RESPONSE_SUFFIX_SUPPORTED is not None:
+        return _CORE_RESPONSE_SUFFIX_SUPPORTED
+
+    try:
+        import run_agent  # type: ignore
+
+        run_agent_path = Path(getattr(run_agent, "__file__", ""))
+        if not run_agent_path.exists():
+            _CORE_RESPONSE_SUFFIX_SUPPORTED = False
+            return False
+
+        source = run_agent_path.read_text(encoding="utf-8", errors="ignore")
+        _CORE_RESPONSE_SUFFIX_SUPPORTED = "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in source
+    except Exception as exc:
+        logger.debug("topic_detect: response_suffix support detection failed: %s", exc)
+        _CORE_RESPONSE_SUFFIX_SUPPORTED = False
+
+    return bool(_CORE_RESPONSE_SUFFIX_SUPPORTED)
 
 
 def _pre_llm_call(**kwargs):
@@ -243,8 +276,6 @@ def _pre_llm_call_impl(**kwargs):
         display_topic,
     )
 
-    _LAST_SIGNATURE = signature
-
     logger.info(
         "topic_detect: signature=%s",
         signature,
@@ -256,15 +287,21 @@ def _pre_llm_call_impl(**kwargs):
     )
 
     response_suffix = ""
-
-    if cfg.signature_enabled:
+    if cfg.signature_enabled and _core_supports_response_suffix():
         response_suffix = f"\n\n{signature}"
+        _LAST_SIGNATURE = None
+    elif cfg.signature_enabled:
+        # Compatibility with Hermes builds that do not yet consume
+        # runtime_override.response_suffix. transform_llm_output will append
+        # the signature once after the final response is produced.
+        _LAST_SIGNATURE = signature
+    else:
+        _LAST_SIGNATURE = None
 
     return {
         "runtime_override": updates,
         "response_suffix": response_suffix,
     }
-
 
 def register(ctx):
     logger.info("topic_detect: loaded")

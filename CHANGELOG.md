@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.4 - 2026-05-11
+
+### Fixed
+- Avoid duplicate topic signature suffixes when running on Hermes core builds that consume `runtime_override.response_suffix`; ARC now chooses either the core suffix path or the legacy `transform_llm_output` path, never both.
+
 ## 1.1.3 - 2026-05-11
 
 ### Fixed
