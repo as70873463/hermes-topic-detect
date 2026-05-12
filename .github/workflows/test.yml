@@ -22,3 +22,5 @@ jobs:
         run: python tests/test_signature_finalize.py
       - name: Run fallback config test
         run: python tests/test_fallback_config.py
+      - name: Run skipdetect command test
+        run: python tests/test_skipdetect.py

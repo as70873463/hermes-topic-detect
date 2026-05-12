@@ -144,6 +144,7 @@ def check_runtime_override_handling(content: str) -> dict:
         re.search(r'transform_llm_output.*provider\s*=\s*self\.provider', content, re.DOTALL)
     )
     results["supports_topic_fallback_chain"] = "HERMES_ARC_TOPIC_FALLBACK_PATCH" in content
+    results["supports_skipdetect_message_rewrite"] = "HERMES_ARC_SKIPDETECT_PATCH" in content
 
     return results
 
@@ -158,6 +159,7 @@ def needs_patch(results: dict) -> bool:
         "handles_response_suffix",
         "sends_provider_in_transform_hook",
         "supports_topic_fallback_chain",
+        "supports_skipdetect_message_rewrite",
     ]
     return not all(results.get(k, False) for k in required)
 
@@ -221,6 +223,18 @@ def apply_patch(path: Path, content: str) -> str:
         )
         runtime_block = '''            if _ctx_parts:
                 _plugin_user_context = "\\n\\n".join(_ctx_parts)
+
+            # HERMES_ARC_SKIPDETECT_PATCH: allow router plugins to rewrite the
+            # current turn user message after inspecting a command prefix.
+            _arc_user_message = _runtime_override.get("user_message")
+            if isinstance(_arc_user_message, str):
+                user_message = _arc_user_message
+                original_user_message = _arc_user_message
+                try:
+                    user_msg["content"] = _arc_user_message
+                    self._persist_user_message_override = _arc_user_message
+                except Exception:
+                    pass
 
             # HERMES_ARC_PATCH: apply runtime routing overrides from plugins.
             # Use Hermes' own switch_model() instead of mutating attributes
@@ -338,6 +352,35 @@ def apply_patch(path: Path, content: str) -> str:
             print("⚠️  Could not locate context assembly — patch skipped")
             return content
         new_content = new_content.replace(ctx_old, runtime_block, 1)
+
+    # ─── Patch 1D: /skipdetect user-message rewrite ───
+    if "HERMES_ARC_SKIPDETECT_PATCH" not in new_content:
+        skip_old = '''            if _ctx_parts:
+                _plugin_user_context = "\\n\\n".join(_ctx_parts)
+
+            # HERMES_ARC_PATCH: apply runtime routing overrides from plugins.
+'''
+        skip_new = '''            if _ctx_parts:
+                _plugin_user_context = "\\n\\n".join(_ctx_parts)
+
+            # HERMES_ARC_SKIPDETECT_PATCH: allow router plugins to rewrite the
+            # current turn user message after inspecting a command prefix.
+            _arc_user_message = _runtime_override.get("user_message")
+            if isinstance(_arc_user_message, str):
+                user_message = _arc_user_message
+                original_user_message = _arc_user_message
+                try:
+                    user_msg["content"] = _arc_user_message
+                    self._persist_user_message_override = _arc_user_message
+                except Exception:
+                    pass
+
+            # HERMES_ARC_PATCH: apply runtime routing overrides from plugins.
+'''
+        if skip_old in new_content:
+            new_content = new_content.replace(skip_old, skip_new, 1)
+        else:
+            print("⚠️  Could not locate context assembly — /skipdetect patch skipped")
 
     # ─── Patch 2: Add provider to transform_llm_output hook call ───
     if "HERMES_ARC_TRANSFORM_PROVIDER_PATCH" not in new_content:
@@ -531,6 +574,7 @@ def verify_patch(content: str) -> dict:
     )
     checks["HERMES_ARC_SYSTEM_PROMPT_PATCH"] = "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content
     checks["HERMES_ARC_TOPIC_FALLBACK_PATCH"] = "HERMES_ARC_TOPIC_FALLBACK_PATCH" in content
+    checks["HERMES_ARC_SKIPDETECT_PATCH"] = "HERMES_ARC_SKIPDETECT_PATCH" in content
 
     return checks
 

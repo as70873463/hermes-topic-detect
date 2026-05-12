@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.1 - 2026-05-12
+
+### Added
+- `/skipdetect <message>` command prefix to bypass ARC classification/routing for one turn, restore the main Hermes model, strip the prefix before the LLM call, and show `[skip]` in the final signature.
+- Patcher verification for `HERMES_ARC_SKIPDETECT_PATCH`, which lets patched Hermes runtimes rewrite the current-turn user message from plugin metadata.
+- Smoke test covering `/skipdetect` bypass behavior and signature rendering.
+
+### Fixed
+- Topic fallback chains are now explicitly scoped per turn: routed topics always emit `fallback_chain` (possibly empty), global fallback chains are preserved, and stale topic fallbacks cannot leak into later turns.
+
 ## 2.1.0 - 2026-05-12
 
 ### Added

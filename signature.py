@@ -10,13 +10,23 @@ def short_model(model: str | None) -> str:
     return short or "default"
 
 
-def build_signature(
-    model: str,
-    topic: str | None,
-) -> str:
+def _label(topic: str | None, reason: str | None = None) -> str:
+    if reason == "skip":
+        return "skip"
+
     label = topic or "general"
     if label == "none":
         label = "general"
+    return label
+
+
+def build_signature(
+    model: str,
+    topic: str | None,
+    *,
+    reason: str | None = None,
+) -> str:
+    label = _label(topic, reason)
 
     return f"- {short_model(model)} [{label}]"
 
@@ -28,6 +38,7 @@ def build_final_signature(
     topic: str | None,
     routed_provider: str | None = None,
     final_provider: str | None = None,
+    reason: str | None = None,
 ) -> str:
     """Build a visible signature using the model that actually answered.
 
@@ -36,12 +47,13 @@ def build_final_signature(
     the originally routed model as context.
     """
 
-    label = topic or "general"
-    if label == "none":
-        label = "general"
+    label = _label(topic, reason)
 
     final = short_model(final_model or routed_model)
     routed = short_model(routed_model)
+
+    if reason == "skip":
+        return f"- {final} [{label}]"
 
     if routed_model and (
         str(final_model or "") != str(routed_model or "")

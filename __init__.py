@@ -58,6 +58,19 @@ def _extract_messages(kwargs: dict[str, Any]) -> list[str]:
     return messages[-5:]
 
 
+def _strip_skipdetect_prefix(message: str | None) -> str | None:
+    text = str(message or "")
+    stripped = text.lstrip()
+
+    if stripped == "/skipdetect":
+        return ""
+
+    if stripped.startswith("/skipdetect "):
+        return stripped[len("/skipdetect "):].lstrip()
+
+    return None
+
+
 def _target_runtime_dict(target) -> dict[str, Any]:
     data: dict[str, Any] = {
         "model": target.model,
@@ -156,6 +169,38 @@ def _pre_llm_call_impl(**kwargs):
         "topic_detect: extracted messages=%s",
         messages,
     )
+
+    skip_message = _strip_skipdetect_prefix(kwargs.get("user_message"))
+    if skip_message is not None:
+        logger.info("topic_detect: /skipdetect requested; bypassing classification and routing")
+        updates: dict[str, Any] = {
+            "restore_main": True,
+            "user_message": skip_message,
+        }
+        signature_model = str(kwargs.get("model") or "default")
+        signature = build_signature(signature_model, "skip", reason="skip")
+
+        if cfg.signature_enabled and _core_supports_response_suffix():
+            updates["_arc_signature"] = {
+                "topic": "skip",
+                "routed_model": signature_model,
+                "routed_provider": str(kwargs.get("provider") or ""),
+                "reason": "skip",
+            }
+            updates["response_suffix"] = f"\n\n{signature}"
+            _LAST_SIGNATURE = None
+        elif cfg.signature_enabled:
+            _LAST_SIGNATURE = {
+                "topic": "skip",
+                "routed_model": signature_model,
+                "routed_provider": str(kwargs.get("provider") or ""),
+                "reason": "skip",
+            }
+        else:
+            _LAST_SIGNATURE = None
+
+        _LAST_RUNTIME = dict(updates)
+        return {"runtime_override": updates}
 
     result = classify(messages)
 
@@ -369,13 +414,14 @@ def _transform_llm_output(response_text: str, **kwargs) -> str | None:
             topic=finalize.get("topic"),
             routed_provider=finalize.get("routed_provider"),
             final_provider=kwargs.get("provider"),
+            reason=finalize.get("reason"),
         )
 
     sig = _LAST_SIGNATURE
     _LAST_SIGNATURE = None
 
     if isinstance(sig, dict):
-        return f"{response_text}\n\n{build_final_signature(routed_model=sig.get('routed_model'), final_model=kwargs.get('model'), topic=sig.get('topic'), routed_provider=sig.get('routed_provider'), final_provider=kwargs.get('provider'))}"
+        return f"{response_text}\n\n{build_final_signature(routed_model=sig.get('routed_model'), final_model=kwargs.get('model'), topic=sig.get('topic'), routed_provider=sig.get('routed_provider'), final_provider=kwargs.get('provider'), reason=sig.get('reason'))}"
 
     if sig:
         return f"{response_text}\n\n{sig}"
