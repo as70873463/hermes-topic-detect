@@ -79,11 +79,13 @@ def _runtime_updates(target) -> dict[str, Any]:
     if target.system_prompt:
         updates["system_prompt"] = target.system_prompt
 
-    if getattr(target, "fallbacks", None):
-        updates["fallback_chain"] = [
-            _target_runtime_dict(fallback)
-            for fallback in target.fallbacks
-        ]
+    # Always send fallback_chain for routed topics, even when empty.
+    # This keeps topic-scoped fallback state turn-scoped and prevents a
+    # previous topic's fallback chain from leaking into the next route.
+    updates["fallback_chain"] = [
+        _target_runtime_dict(fallback)
+        for fallback in getattr(target, "fallbacks", [])
+    ]
 
     return updates
 

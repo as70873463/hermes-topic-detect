@@ -241,6 +241,7 @@ def apply_patch(path: Path, content: str) -> str:
                         "base_url": getattr(self, "base_url", ""),
                         "api_key": getattr(self, "api_key", ""),
                         "api_mode": getattr(self, "api_mode", ""),
+                        "fallback_chain": list(getattr(self, "_fallback_chain", []) or []),
                     }
 
                 if _arc_restore_main:
@@ -263,10 +264,19 @@ def apply_patch(path: Path, content: str) -> str:
                                 self.base_url = str(_arc_base.get("base_url")).rstrip("/")
                             if _arc_base.get("api_key"):
                                 self.api_key = str(_arc_base.get("api_key"))
+                        _base_fallback_chain = [
+                            f for f in (_arc_base.get("fallback_chain") or [])
+                            if isinstance(f, dict) and f.get("provider") and f.get("model")
+                        ]
+                        self._fallback_chain = list(_base_fallback_chain)
+                        self._fallback_model = self._fallback_chain[0] if self._fallback_chain else None
+                        self._fallback_index = 0
+                        self._fallback_activated = False
                         logger.info(
-                            "hermes-arc: restored main runtime provider=%s model=%s",
+                            "hermes-arc: restored main runtime provider=%s model=%s fallbacks=%d",
                             getattr(self, "provider", ""),
                             getattr(self, "model", ""),
+                            len(self._fallback_chain),
                         )
                 elif _arc_model or _arc_provider or _arc_base_url or _arc_api_key:
                     _target_provider = str(_arc_provider or getattr(self, "provider", "") or "auto")
@@ -414,10 +424,11 @@ def apply_patch(path: Path, content: str) -> str:
             # to the agent's global chain.
             _override_fallback_chain = runtime_override.get("fallback_chain")
             if isinstance(_override_fallback_chain, list):
-                fallback_chain = [
+                _topic_fallback_chain = [
                     f for f in _override_fallback_chain
                     if isinstance(f, dict) and f.get("provider") and f.get("model")
                 ]
+                fallback_chain = list(_topic_fallback_chain) + list(fallback_chain)
                 fallback_model = fallback_chain[0] if fallback_chain else None
                 fallback_index = 0
             # ``switch_model`` deliberately prunes fallback entries for
@@ -429,17 +440,24 @@ def apply_patch(path: Path, content: str) -> str:
                     # fallback chain supplied by topic_detect runtime_override.
                     _arc_fb_chain_raw = _runtime_override.get("fallback_chain")
                     if isinstance(_arc_fb_chain_raw, list):
-                        _arc_fb_chain = [
+                        _arc_topic_fb_chain = [
                             f for f in _arc_fb_chain_raw
                             if isinstance(f, dict) and f.get("provider") and f.get("model")
                         ]
-                        self._fallback_chain = _arc_fb_chain
-                        self._fallback_model = _arc_fb_chain[0] if _arc_fb_chain else None
+                        _arc_base = getattr(self, "_hermes_arc_base_runtime", None) or {}
+                        _arc_global_fb_chain = [
+                            f for f in (_arc_base.get("fallback_chain") or [])
+                            if isinstance(f, dict) and f.get("provider") and f.get("model")
+                        ]
+                        self._fallback_chain = list(_arc_topic_fb_chain) + list(_arc_global_fb_chain)
+                        self._fallback_model = self._fallback_chain[0] if self._fallback_chain else None
                         self._fallback_index = 0
                         self._fallback_activated = False
                         logger.info(
-                            "hermes-arc: topic fallback chain loaded entries=%d",
-                            len(_arc_fb_chain),
+                            "hermes-arc: topic fallback chain loaded topic_entries=%d global_entries=%d total=%d",
+                            len(_arc_topic_fb_chain),
+                            len(_arc_global_fb_chain),
+                            len(self._fallback_chain),
                         )
 
                     logger.info(

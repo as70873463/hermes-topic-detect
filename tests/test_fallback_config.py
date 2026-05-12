@@ -68,4 +68,8 @@ assert updates["fallback_chain"] == [
     {"provider": "nous", "model": "qwen/qwen3.6-plus"},
 ]
 
-print("PASS | fallback config loads and emits runtime fallback_chain")
+software.fallbacks = []
+updates_without_topic_fallbacks = mod._runtime_updates(software)
+assert updates_without_topic_fallbacks["fallback_chain"] == []
+
+print("PASS | fallback config loads and emits scoped runtime fallback_chain")
