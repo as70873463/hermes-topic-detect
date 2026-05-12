@@ -4,12 +4,24 @@
 > ARC detects what the user is trying to do first, then uses the subject as a tiebreaker when needed.
 
 <p align="center">
-  <strong>Intent-aware routing</strong> · <strong>Runtime model switching</strong> · <strong>Arena-aligned taxonomy</strong> · <strong>Hermes plugin</strong>
+  <strong>Intent-aware routing</strong> · <strong>Runtime model switching</strong> · <strong>Final-model signatures</strong> · <strong>Hermes plugin</strong>
 </p>
 
 <p align="center">
   <a href="README_TH.md">ไทย</a> · <strong>English</strong>
 </p>
+
+---
+
+## At a Glance
+
+ARC is a Hermes Agent plugin that routes each turn to a configured specialist model when doing so is useful, while leaving ordinary chat on the main model.
+
+- **Problem:** one default model is not always the cheapest or strongest choice for every task.
+- **Approach:** detect the user's action first, then use the subject/topic as a tiebreaker.
+- **Current status:** works today as a plugin; `patch_run_agent.py` is a temporary compatibility bridge.
+- **Upstream path:** once NousResearch/hermes-agent#23898 lands, ARC can drop the patch and use native plugin runtime overrides.
+- **Next direction:** smart routing with complexity, cost/latency, hardware awareness, and external router integrations.
 
 ---
 
@@ -57,6 +69,34 @@ Example signatures:
 ```
 
 Internally, ARC still uses `none` for “no specialist topic matched.” The user-facing signature renders that as `[general]` because it is clearer.
+
+---
+
+## Routing Examples
+
+These examples show the intended behavior, not a hard-coded model recommendation. Your configured `topic_detect.topics` mapping decides the actual model.
+
+```text
+User: fix this failing API test
+ARC:  action=technical → route=software_it
+Shown suffix: - gemma-4-31b [software_it]
+
+User: calculate ROI for this project
+ARC:  action=analytical + subject=business_finance → route=business_finance
+Shown suffix: - minimax-m2.5 [business_finance]
+
+User: write a short fantasy scene
+ARC:  action=creative + subject=writing_language → route=writing_language
+Shown suffix: - gemma-4-31b [writing_language]
+
+User: thanks
+ARC:  no confident specialist route → main model
+Shown suffix: - gpt-5.5 [general]
+
+User: debug this server, but the routed model falls back in Hermes
+ARC:  route=software_it, final responder differs from requested route model
+Shown suffix: - gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b]
+```
 
 ---
 
@@ -278,6 +318,12 @@ Development-only files live under:
 - `.github/workflows/` — CI smoke checks
 
 See [`docs/REPO_LAYOUT.md`](docs/REPO_LAYOUT.md).
+
+Additional design notes:
+
+- [`docs/SIGNATURE_FLOW.md`](docs/SIGNATURE_FLOW.md) — how final-model-aware signatures are rendered.
+- [`docs/V2_REWRITE_PLAN.md`](docs/V2_REWRITE_PLAN.md) — v2 action-first routing rewrite plan.
+- [`docs/V3_SMART_ROUTER.md`](docs/V3_SMART_ROUTER.md) — future smart-router direction.
 
 ---
 

@@ -151,6 +151,7 @@ FILES=(
   docs/SIGNATURE_FLOW.md
   docs/REPO_LAYOUT.md
   docs/V2_REWRITE_PLAN.md
+  docs/V3_SMART_ROUTER.md
 )
 
 # ── Download or copy ────────────────────────────────────────────────────────
