@@ -200,18 +200,23 @@ def _pre_llm_call_impl(**kwargs):
     )
 
     logger.info(
-        "topic_detect: source=%s raw=%s conf=%.2f final=%s switch=%s reason=%s scores=%s",
+        "topic_detect: source=%s raw=%s conf=%.2f final=%s switch=%s reason=%s action=%s action_score=%.2f subject=%s route_reason=%s scores=%s debug=%s",
         source,
         result.topic,
         result.confidence,
         topic,
         should_switch,
         reason,
+        getattr(result, "action_detected", "none"),
+        getattr(result, "action_score", 0.0),
+        getattr(result, "subject_detected", "none"),
+        getattr(result, "final_route_reason", ""),
         {
             k: round(v, 2)
             for k, v in result.scores.items()
             if v > 0
         },
+        getattr(result, "debug", {}),
     )
 
     target = None

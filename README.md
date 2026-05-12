@@ -1,10 +1,10 @@
 # ⚡ Hermes ARC — Adaptive Routing Core
 
-> **A practical reference implementation for topic-aware runtime model routing in Hermes Agent.**  
-> ARC detects what the user is talking about, then routes that turn to the model/persona best suited for the topic.
+> **A practical reference implementation for intent-aware runtime model routing in Hermes Agent.**  
+> ARC detects what the user is trying to do first, then uses the subject as a tiebreaker when needed.
 
 <p align="center">
-  <strong>Topic-aware routing</strong> · <strong>Runtime model switching</strong> · <strong>Arena-aligned taxonomy</strong> · <strong>Hermes plugin</strong>
+  <strong>Intent-aware routing</strong> · <strong>Runtime model switching</strong> · <strong>Arena-aligned taxonomy</strong> · <strong>Hermes plugin</strong>
 </p>
 
 <p align="center">
@@ -26,7 +26,8 @@ Hermes can run with one powerful main model for every task, but that is not alwa
 
 ```text
 User message
-  → classify topic
+  → detect action/intent first
+  → use subject/topic as tiebreaker when needed
   → choose configured model/persona
   → call Hermes with a runtime override
   → append a small routing signature
@@ -38,7 +39,8 @@ ARC is intentionally small and practical. It does not claim to be a full smart-r
 
 ## What It Does
 
-- **Detects the topic** with keyword, semantic, or hybrid routing.
+- **Detects the user's intent/action first** with keyword, semantic, or hybrid routing.
+- **Uses subject/topic as a tiebreaker** when action alone is not enough.
 - **Switches model/provider at runtime** based on `topic_detect.topics`.
 - **Adds a topic persona** from `AGENTS.md` so the routed model behaves like a specialist.
 - **Falls back safely** to the main Hermes model when no specialized topic is confident enough.

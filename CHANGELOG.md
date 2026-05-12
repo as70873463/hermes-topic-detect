@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.0 - 2026-05-12
+
+### Breaking
+- Reframed ARC classification from topic-first to intent/action-first routing. The 8 topic names and config schema are unchanged, but route decisions now prioritize what the user is trying to do over what subject words appear in the prompt.
+
+### Added
+- Extensible action detection registry for `technical`, `analytical`, and `creative` actions, with room for future categories such as tool-use, research, multimodal, and agentic actions.
+- Absolute `TECHNICAL_ACTION` override: prompts asking to modify, fix, run, configure, debug, build, implement, test, refactor, or operate technical artifacts route to `software_it` even when the subject mentions writing, finance, law, healthcare, or media.
+- Action/subject routing tables for creative and analytical prompts.
+- Debug metadata on keyword classification results: `action_detected`, `action_score`, `subject_detected`, `final_route_reason`, plus matched action/subject details in logs.
+- `test_v2_classifier.py` smoke matrix covering technical override, creative routing, analytical routing, and safe `none` cases.
+
+### Changed
+- Semantic classifier prompt now explicitly classifies intent, not merely topic, and includes five rules: technical action overrides everything; classify action not subject; content subject alone is not enough; use subject as tiebreaker only when action is unclear; `none` is safe.
+- Keyword classifier now normalizes text with Unicode NFKC and whitespace compaction before scoring.
+- Creative article writing stays `writing_language` even when the article subject is finance; report/contract deliverables keep domain-specific routes.
+
+### Preserved
+- `config.yaml` structure, the 8 topic names, signature format, fallback behavior, inertia state logic, and installer behavior remain compatible with v1.2.x.
+
 ## 1.2.0 - 2026-05-12
 
 ### Breaking

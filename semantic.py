@@ -54,7 +54,7 @@ def semantic_classify(
     text = "\n".join(messages[-5:])
 
     prompt = f"""
-Classify the user's conversation into ONE primary Arena.ai-aligned routing topic.
+Classify the user's conversation into ONE primary Arena.ai-aligned routing topic by INTENT.
 
 Allowed topics:
 {", ".join(TOPICS)}
@@ -62,10 +62,33 @@ Allowed topics:
 Topic guide:
 {TOPIC_GUIDE}
 
-Important rules:
+Intent-first rules:
+1. Technical action overrides everything:
+   If the user is asking to modify, fix, run, configure, debug, build, implement,
+   deploy, install, test, refactor, or operate something technical (code, server,
+   config file, script, API, database, parser, plugin), classify as software_it
+   regardless of what the subject matter is.
+2. Classify the ACTION, not the SUBJECT:
+   Ask "what is the user trying to DO?" before asking "what is the user talking about?"
+3. Content subject alone is not enough:
+   A prompt mentioning "นิยาย", "finance", "law", "contract", or "healthcare" does
+   not automatically route to that topic if the requested action is technical.
+4. When in doubt about action, use subject as tiebreaker:
+   Fall back to subject-based classification only when no clear action is present.
+5. none is safe:
+   If neither action nor subject is clear enough, return "none" and let the main
+   model handle it. Do not guess.
+
+Action examples:
+- "แก้พอร์ตในเว็บอ่านนิยาย" = software_it, because the action is fixing a port.
+- "เปลี่ยน model ใน config finance" = software_it, because the action is changing config.
+- "fix error ใน legal document parser" = software_it, because the action is debugging a parser.
+- "draft contract สำหรับ startup" = legal_government, because the action is drafting legal content.
+- "แต่งบทความเกี่ยวกับ finance" = writing_language, because the action is writing an article.
+
+Other rules:
 - Do not use a general topic. If no specialized category is clear, return "none".
 - Expert, Hard Prompts, Instruction Following, Multi-Turn, Longer Query, and language-specific boards are modifiers/future metadata, not primary topics here.
-- Prefer the domain/topic over the task shape. Example: "debug this Python API" = software_it, not instruction_following.
 - Return JSON only.
 
 Return JSON only:
@@ -80,7 +103,7 @@ Conversation:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a strict Arena.ai-aligned topic classifier. Return JSON only.",
+                "content": "You are a strict Arena.ai-aligned intent classifier. Classify what the user is trying to do, not merely the subject mentioned. Return JSON only.",
             },
             {
                 "role": "user",
