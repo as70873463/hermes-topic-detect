@@ -360,13 +360,11 @@ def apply_patch(path: Path, content: str) -> str:
 
     # ─── Patch 3: Response suffix rendering (signature append) ───
     if "HERMES_ARC_RESPONSE_SUFFIX_PATCH" not in new_content:
-        # Insert after transform hook, before post_llm_call hook
-        suffix_marker = '''                logger.warning("transform_llm_output hook failed: %s", exc)
-
-        # Plugin hook: post_llm_call'''
-        suffix_new = '''                logger.warning("transform_llm_output hook failed: %s", exc)
-
-        # HERMES_ARC_RESPONSE_SUFFIX_PATCH: render ARC signature from
+        # Insert before post_llm_call. Older patcher versions required the exact
+        # transform warning line immediately before this marker; newer Hermes
+        # cores may change spacing/comments, so anchor on the stable next hook.
+        suffix_marker = '        # Plugin hook: post_llm_call'
+        suffix_block = '''        # HERMES_ARC_RESPONSE_SUFFIX_PATCH: render ARC signature from
         # _runtime_override (structured _arc_signature dict) and the final
         # model/provider after any fallback occurred.
         if final_response and not interrupted:
@@ -404,11 +402,11 @@ def apply_patch(path: Path, content: str) -> str:
             except Exception:
                 logger.debug("hermes-arc: response suffix render failed")
 
-        # Plugin hook: post_llm_call'''
+'''
         if suffix_marker in new_content:
-            new_content = new_content.replace(suffix_marker, suffix_new, 1)
+            new_content = new_content.replace(suffix_marker, suffix_block + suffix_marker, 1)
         else:
-            print("⚠️  Could not locate transform-to-post_llm_call boundary — suffix patch skipped")
+            print("⚠️  Could not locate post_llm_call hook boundary — suffix patch skipped")
 
     # ─── Patch 4: system_prompt support (pre_llm_call → inject before context assembly) ───
     if "HERMES_ARC_SYSTEM_PROMPT_PATCH" not in new_content:
@@ -510,9 +508,13 @@ def main():
                 shutil.copy2(path, backup)
                 print(f"📦 Backup created: {backup}")
             path.write_text(new_content, encoding="utf-8")
+            content = new_content
             print("✅ Patch applied successfully.")
 
     if args.verify:
+        # Re-read after --patch so `--patch --verify` verifies the file on disk,
+        # not the pre-patch content captured at startup.
+        content = path.read_text(encoding="utf-8", errors="ignore")
         checks = verify_patch(content)
         print("🔍 Hermes ARC patch verification:")
         all_ok = True
