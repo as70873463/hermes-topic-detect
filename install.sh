@@ -148,6 +148,9 @@ FILES=(
   README.md
   README_TH.md
   CHANGELOG.md
+  docs/SIGNATURE_FLOW.md
+  docs/REPO_LAYOUT.md
+  docs/V2_REWRITE_PLAN.md
 )
 
 # ── Download or copy ────────────────────────────────────────────────────────
@@ -159,6 +162,7 @@ if [[ "${REPO_RAW}" == *"<USERNAME>"* ]]; then
 
   LOCAL_SRC="${HOME}/.hermes/plugins/topic_detect"
   for f in "${FILES[@]}"; do
+    mkdir -p "$(dirname "${PLUGIN_DIR}/${f}")"
     if [[ -f "${LOCAL_SRC}/${f}" ]]; then
       if [[ "${LOCAL_SRC}/${f}" -ef "${PLUGIN_DIR}/${f}" ]]; then
         echo "  ✅ ${f} (already in place)"
@@ -173,6 +177,7 @@ if [[ "${REPO_RAW}" == *"<USERNAME>"* ]]; then
 else
   echo "Downloading from: ${REPO_RAW}"
   for f in "${FILES[@]}"; do
+    mkdir -p "$(dirname "${PLUGIN_DIR}/${f}")"
     if curl -fsSL "${REPO_RAW}/${f}" -o "${PLUGIN_DIR}/${f}"; then
       echo "  ✅ ${f}"
     else

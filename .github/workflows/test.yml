@@ -1,0 +1,20 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile plugin
+        run: python -m compileall . -q
+      - name: Run ARC v2 classifier smoke test
+        run: python tests/test_v2_classifier.py
+      - name: Run signature finalize test
+        run: python tests/test_signature_finalize.py

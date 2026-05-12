@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.1 - 2026-05-12
+
+### Fixed
+- Render ARC signatures from the structured `_arc_signature` finalize path so patched Hermes cores show the final responder correctly in Telegram and CLI output.
+- Make `patch_run_agent.py` repair partially patched Hermes runtimes instead of exiting early when only some ARC markers already exist.
+
+### Changed
+- Cleaned repository layout by moving development smoke tests under `tests/`, adding focused docs under `docs/`, and adding CI smoke checks while keeping runtime plugin files flat for installer compatibility.
+- Installer now downloads `docs/` references and creates nested directories before writing files.
+- Documented the current signature source of truth: `runtime_override._arc_signature → transform_llm_output(_arc_finalize=...) → build_final_signature()`.
+
 ## 2.0.0 - 2026-05-12
 
 ### Breaking

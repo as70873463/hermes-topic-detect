@@ -16,7 +16,7 @@ logger = logging.getLogger("topic_detect")
 
 _TOPIC_STATE = TopicState()
 _LAST_RUNTIME: dict[str, Any] | None = None
-_LAST_SIGNATURE: str | None = None
+_LAST_SIGNATURE: dict[str, Any] | str | None = None
 _UPDATE_NOTICE_CHECKED = False
 _CORE_RESPONSE_SUFFIX_SUPPORTED: bool | None = None
 

@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import importlib.util
 import pathlib
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT.parent))
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 spec = importlib.util.spec_from_file_location(
     "topic_detect",
     ROOT / "__init__.py",
     submodule_search_locations=[str(ROOT)],
 )
+assert spec is not None and spec.loader is not None
 mod = importlib.util.module_from_spec(spec)
 sys.modules["topic_detect"] = mod
 spec.loader.exec_module(mod)

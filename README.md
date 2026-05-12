@@ -49,10 +49,11 @@ ARC is intentionally small and practical. It does not claim to be a full smart-r
 Example signatures:
 
 ```text
-- gemma-4-31b:free [software_it]
-- minimax-m2.5:free [business_finance]
-- glm-4.5-air:free [entertainment_media]
+- gemma-4-31b [software_it]
+- minimax-m2.5 [business_finance]
+- glm-4.5-air [entertainment_media]
 - gpt-5.5 [general]
+- gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b]
 ```
 
 Internally, ARC still uses `none` for “no specialist topic matched.” The user-facing signature renders that as `[general]` because it is clearer.
@@ -229,8 +230,38 @@ Expected style of logs:
 ```text
 topic_detect: loaded
 topic_detect: switching provider=openrouter model=google/gemma-4-31b:free
-topic_detect: signature=- gemma-4-31b:free [software_it]
+topic_detect: signature=- gemma-4-31b [software_it]
 ```
+
+---
+
+## Signature Source
+
+The current patched-core path is:
+
+```text
+runtime_override._arc_signature
+  → transform_llm_output(_arc_finalize=...)
+  → signature.build_final_signature(...)
+```
+
+That path renders the model that actually answered after Hermes fallback. `runtime_override.response_suffix` is still kept as a compatibility fallback for older patched cores.
+
+See [`docs/SIGNATURE_FLOW.md`](docs/SIGNATURE_FLOW.md) for the full flow.
+
+---
+
+## Repository Layout
+
+Runtime plugin files intentionally stay flat at the repo root because the one-line installer downloads raw files directly into `~/.hermes/plugins/topic_detect`.
+
+Development-only files live under:
+
+- `tests/` — classifier and signature smoke tests
+- `docs/` — design and operational notes
+- `.github/workflows/` — CI smoke checks
+
+See [`docs/REPO_LAYOUT.md`](docs/REPO_LAYOUT.md).
 
 ---
 
@@ -250,9 +281,9 @@ topic_detect: signature=- gemma-4-31b:free [software_it]
 ## Roadmap
 
 - **v1:** Topic-aware runtime model routing.
-- **v1.x:** Cleaner compatibility with upstream `pre_llm_call` runtime overrides once merged.
-- **v2:** Complexity-aware routing: simple vs hard prompts, latency/cost preference, reasoning depth.
-- **v3:** Smart-router interface that can integrate external routers such as Manifest-style systems.
+- **v2:** Intent/action-first routing with technical override and final-model-aware signatures.
+- **v2.x:** Cleaner compatibility with upstream `pre_llm_call` runtime overrides once merged.
+- **v3:** Smart-router interface that can integrate complexity, cost/latency policy, and external routers such as Manifest-style systems.
 
 ---
 

@@ -1,4 +1,12 @@
-from classifier import classify
+from __future__ import annotations
+
+import pathlib
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from classifier import classify  # noqa: E402
 
 CASES = [
     ("แก้พอร์ตในเว็บอ่านนิยาย", {"software_it"}),
@@ -21,7 +29,7 @@ CASES = [
 ]
 
 
-def main():
+def main() -> None:
     failures = []
     for text, expected in CASES:
         result = classify([text])
