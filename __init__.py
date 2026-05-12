@@ -187,7 +187,6 @@ def _pre_llm_call_impl(**kwargs):
                 "routed_provider": str(kwargs.get("provider") or ""),
                 "reason": "skip",
             }
-            updates["response_suffix"] = f"\n\n{signature}"
             _LAST_SIGNATURE = None
         elif cfg.signature_enabled:
             _LAST_SIGNATURE = {
@@ -352,19 +351,16 @@ def _pre_llm_call_impl(**kwargs):
     )
 
     if cfg.signature_enabled and _core_supports_response_suffix():
-        # Patched Hermes cores consume response_suffix metadata from
-        # runtime_override. Store structured ARC data so the core can render the
-        # signature with the final responder after fallback, not just the model
-        # ARC originally routed to.
+        # Patched Hermes cores read _arc_signature from runtime_override
+        # and render the signature themselves via transform_llm_output(_arc_finalize=...)
+        # after any fallback has resolved. Do NOT set response_suffix here —
+        # that would cause a double signature (hook appends once, core appends again).
         updates = dict(updates)
         updates["_arc_signature"] = {
             "topic": display_topic,
             "routed_model": signature_model,
             "routed_provider": target.provider if target else str(kwargs.get("provider") or ""),
         }
-        # Backward-compatible fallback for patched cores older than the
-        # structured _arc_signature renderer.
-        updates["response_suffix"] = f"\n\n{signature}"
         _LAST_SIGNATURE = None
     elif cfg.signature_enabled:
         # Compatibility with Hermes builds that do not yet consume
