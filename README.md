@@ -68,8 +68,9 @@ Related upstream work:
 
 - Smart routing discussion: https://github.com/NousResearch/hermes-agent/issues/21827
 - Core primitive proposal: https://github.com/NousResearch/hermes-agent/issues/23739
+- Native plugin runtime override PR: https://github.com/NousResearch/hermes-agent/pull/23898
 
-If Hermes core adds native `pre_llm_call` runtime overrides, ARC can remove the monkey-patch path and use that hook directly.
+Until native runtime overrides land in Hermes core, ARC ships `patch_run_agent.py` as a compatibility bridge. Once upstream PR #23898 merges and is available in a Hermes release, ARC v2.x can drop the patch dependency and use the native plugin hook directly.
 
 Clean target architecture:
 
@@ -235,6 +236,21 @@ topic_detect: signature=- gemma-4-31b [software_it]
 
 ---
 
+## Development
+
+Runtime plugin files intentionally stay importable without packaging, but tests need a small dependency set.
+
+```bash
+python -m pip install -r requirements-test.txt
+python -m compileall . -q
+python tests/test_v2_classifier.py
+python tests/test_signature_finalize.py
+```
+
+`requirements-test.txt` currently contains `PyYAML`, which is needed because the plugin config loader imports `yaml`.
+
+---
+
 ## Signature Source
 
 The current patched-core path is:
@@ -282,8 +298,8 @@ See [`docs/REPO_LAYOUT.md`](docs/REPO_LAYOUT.md).
 
 - **v1:** Topic-aware runtime model routing.
 - **v2:** Intent/action-first routing with technical override and final-model-aware signatures.
-- **v2.x:** Cleaner compatibility with upstream `pre_llm_call` runtime overrides once merged.
-- **v3:** Smart-router interface that can integrate complexity, cost/latency policy, and external routers such as Manifest-style systems.
+- **v2.x:** Drop `patch_run_agent.py` dependency once upstream PR #23898 merges native plugin runtime override support.
+- **v3:** Smart-router with complexity scoring, cost/latency policy, and external router integration.
 
 ---
 
