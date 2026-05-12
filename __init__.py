@@ -337,14 +337,24 @@ def register(ctx):
 
 
 def _transform_llm_output(response_text: str, **kwargs) -> str | None:
-    """Append signature suffix to the final response text.
+    """Render or append the ARC signature suffix.
 
-    This hook fires after the tool-calling loop completes, before the
-    response is returned to the user.  We read the last signature that
-    was computed in pre_llm_call and append it here so it actually
-    appears in the visible response.
+    Legacy cores call this hook with the final response and use
+    _LAST_SIGNATURE. Patched cores call it a second way with
+    _arc_finalize metadata and an empty response_text so the core can append
+    exactly one final-model-aware suffix itself.
     """
     global _LAST_SIGNATURE
+
+    finalize = kwargs.get("_arc_finalize")
+    if isinstance(finalize, dict):
+        return build_final_signature(
+            routed_model=finalize.get("routed_model"),
+            final_model=kwargs.get("model"),
+            topic=finalize.get("topic"),
+            routed_provider=finalize.get("routed_provider"),
+            final_provider=kwargs.get("provider"),
+        )
 
     sig = _LAST_SIGNATURE
     _LAST_SIGNATURE = None
