@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Hermes ARC — run_agent.py compatibility checker & patcher
+Hermes ARC v1.2.0 — run_agent.py compatibility checker & patcher
 
 Checks whether run_agent.py properly handles runtime_override from
-pre_llm_call hooks. Optionally applies a compatibility patch if needed.
+pre_llm_call hooks, provider in transform_llm_output, and response
+suffix rendering. Optionally applies a compatibility patch if needed.
 
 Usage:
     python3 patch_run_agent.py --check     # Check only
@@ -49,7 +50,6 @@ def find_run_agent_candidates() -> list[Path]:
         if resolved not in candidates and _looks_like_hermes_run_agent(resolved):
             candidates.append(resolved)
 
-    # Known install/source layouts.
     known = [
         RUN_AGENT_PATH,
         Path.home() / ".hermes/hermes-agent/run_agent.py",
@@ -60,7 +60,6 @@ def find_run_agent_candidates() -> list[Path]:
     for path in known:
         add(path)
 
-    # Infer from the hermes executable/symlink/venv path when possible.
     hermes_bin = shutil.which("hermes")
     if hermes_bin:
         try:
@@ -71,7 +70,6 @@ def find_run_agent_candidates() -> list[Path]:
         except OSError:
             pass
 
-    # Bounded fallback search. Avoid scanning the whole filesystem.
     roots = [
         Path("/usr/local/lib"),
         Path("/usr/local/share"),
@@ -131,28 +129,21 @@ def check_runtime_override_handling(content: str) -> dict:
     results = {}
 
     results["has_pre_llm_call_hook"] = "pre_llm_call" in content
-    results["reads_runtime_override"] = "runtime_override" in content
-    results["applies_model_override"] = bool(
-        "_arc_model" in content
-        or re.search(r'runtime_override.*model', content, re.DOTALL)
-    )
-    results["applies_provider_override"] = bool(
-        "_arc_provider" in content
-        or re.search(r'runtime_override.*provider', content, re.DOTALL)
-    )
-    results["applies_system_prompt_override"] = bool(
-        "plugin_system_prompt" in content
-        and "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content
-    )
+    results["has_transform_llm_output_hook"] = "transform_llm_output" in content
+    results["reads_runtime_override"] = "_runtime_override" in content and "runtime_override" in content
     results["uses_switch_model_runtime"] = bool(
         "switch_model(" in content
         and "_arc_resolve_provider_client" in content
-        and "restore_main" in content
+        and "_hermes_arc_base_runtime" in content
     )
     results["handles_response_suffix"] = bool(
         "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content
         and "_arc_signature" in content
     )
+    results["sends_provider_in_transform_hook"] = bool(
+        re.search(r'transform_llm_output.*provider\s*=\s*self\.provider', content, re.DOTALL)
+    )
+
     return results
 
 
@@ -160,43 +151,43 @@ def needs_patch(results: dict) -> bool:
     """Determine if patching is needed."""
     required = [
         "has_pre_llm_call_hook",
+        "has_transform_llm_output_hook",
         "reads_runtime_override",
-        "applies_model_override",
-        "applies_provider_override",
-        "applies_system_prompt_override",
         "uses_switch_model_runtime",
         "handles_response_suffix",
+        "sends_provider_in_transform_hook",
     ]
     return not all(results.get(k, False) for k in required)
 
 
 def apply_patch(path: Path, content: str) -> str:
     """
-    Apply compatibility patch to run_agent.py.
+    Apply compatibility patch to run_agent.py v1.2.0.
 
-    The patch ensures that runtime_override from pre_llm_call hooks
-    is applied to model/provider/base_url/api_key, system_prompt, and
-    response_suffix without renaming the topic_detect plugin.
+    Three patch sections:
+    1. HERMES_ARC_PATCH: runtime_override support (collect + apply via switch_model)
+    2. HERMES_ARC_RESPONSE_SUFFIX_PATCH: render _arc_signature in final response
+    3. transform_llm_output provider injection
     """
     if (
-        "HERMES_ARC_PATCH" in content
+        "HERMES_ARC_PATCH: runtime_override support" in content
         and "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content
         and "_arc_signature" in content
         and "_arc_resolve_provider_client" in content
-        and "restore_main" in content
+        and "HERMES_ARC_TRANSFORM_PROVIDER_PATCH" in content
     ):
         print("ℹ️  Patch already applied — skipping")
         return content
 
     new_content = content
 
+    # ─── Patch 1A: Add _runtime_override init before pre_llm_call block ───
     if "HERMES_ARC_PATCH: runtime_override support" not in new_content:
         init_old = '        _plugin_user_context = ""\n        try:\n'
         init_new = (
             '        _plugin_user_context = ""\n'
             '        # HERMES_ARC_PATCH: runtime_override support\n'
             '        _runtime_override = {}\n'
-            '        _plugin_system_prompt = ""\n'
             '        try:\n'
         )
         if init_old not in new_content:
@@ -204,6 +195,7 @@ def apply_patch(path: Path, content: str) -> str:
             return content
         new_content = new_content.replace(init_old, init_new, 1)
 
+        # ─── Patch 1B: Collect runtime_override from pre_llm_call results ───
         loop_old = (
             '            for r in _pre_results:\n'
             '                if isinstance(r, dict) and r.get("context"):\n'
@@ -216,9 +208,9 @@ def apply_patch(path: Path, content: str) -> str:
             '                if isinstance(r, dict):\n'
             '                    if r.get("context"):\n'
             '                        _ctx_parts.append(str(r["context"]))\n'
-            '                    _arc_override = r.get("runtime_override")\n'
-            '                    if isinstance(_arc_override, dict):\n'
-            '                        _runtime_override.update(_arc_override)\n'
+            '                    _arc_ov = r.get("runtime_override")\n'
+            '                    if isinstance(_arc_ov, dict):\n'
+            '                        _runtime_override.update(_arc_ov)\n'
             '                elif isinstance(r, str) and r.strip():\n'
             '                    _ctx_parts.append(r)\n'
         )
@@ -227,18 +219,18 @@ def apply_patch(path: Path, content: str) -> str:
             return content
         new_content = new_content.replace(loop_old, loop_new, 1)
 
+        # ─── Patch 1C: Apply runtime overrides after context assembly ───
         ctx_old = (
             '            if _ctx_parts:\n'
             '                _plugin_user_context = "\\n\\n".join(_ctx_parts)\n'
         )
-        runtime_block = """            if _ctx_parts:
+        runtime_block = '''            if _ctx_parts:
                 _plugin_user_context = "\\n\\n".join(_ctx_parts)
 
             # HERMES_ARC_PATCH: apply runtime routing overrides from plugins.
-            # Use Hermes' own provider resolver + switch_model() instead of
-            # mutating self.provider/self.model directly.  This preserves
-            # provider-specific api_mode, OAuth/subscriber credentials,
-            # headers, context-compressor metadata, and client rebuild logic.
+            # Use Hermes' own switch_model() instead of mutating attributes
+            # directly — preserves provider-specific api_mode, OAuth, headers,
+            # context-compressor metadata, and client rebuild logic.
             if isinstance(_runtime_override, dict) and _runtime_override:
                 _arc_restore_main = bool(_runtime_override.get("restore_main"))
                 _arc_model = _runtime_override.get("model")
@@ -246,7 +238,6 @@ def apply_patch(path: Path, content: str) -> str:
                 _arc_base_url = _runtime_override.get("base_url")
                 _arc_api_key = _runtime_override.get("api_key")
                 _arc_api_mode = _runtime_override.get("api_mode")
-                _arc_system_prompt = _runtime_override.get("system_prompt")
 
                 if not hasattr(self, "_hermes_arc_base_runtime"):
                     self._hermes_arc_base_runtime = {
@@ -330,18 +321,6 @@ def apply_patch(path: Path, content: str) -> str:
                             self.base_url = _resolved_base_url
                         if _resolved_api_key:
                             self.api_key = _resolved_api_key
-                        if hasattr(self, "_client_kwargs"):
-                            if _resolved_base_url:
-                                self._client_kwargs["base_url"] = self.base_url
-                            if _resolved_api_key:
-                                self._client_kwargs["api_key"] = self.api_key
-                        if (_resolved_base_url or _resolved_api_key) and hasattr(self, "_replace_primary_openai_client"):
-                            try:
-                                if hasattr(self, "_apply_client_headers_for_base_url"):
-                                    self._apply_client_headers_for_base_url(self.base_url)
-                                self._replace_primary_openai_client(reason="hermes_arc_runtime_override")
-                            except Exception as _arc_client_error:
-                                logger.debug("hermes-arc: client refresh skipped: %s", _arc_client_error)
 
                     logger.info(
                         "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",
@@ -349,427 +328,203 @@ def apply_patch(path: Path, content: str) -> str:
                         getattr(self, "model", ""),
                         getattr(self, "api_mode", ""),
                     )
-
-                if _arc_system_prompt:
-                    _plugin_system_prompt = str(_arc_system_prompt)
-"""
+'''
         if ctx_old not in new_content:
             print("⚠️  Could not locate context assembly — patch skipped")
             return content
         new_content = new_content.replace(ctx_old, runtime_block, 1)
 
-    # Upgrade older ARC patches that mutated self.provider/self.model directly.
-    # Older installers left the HERMES_ARC_PATCH marker in place, which made
-    # --patch skip even though switch_model-compatible routing was missing.
-    if (
-        "HERMES_ARC_PATCH: apply runtime routing overrides from plugins." in new_content
-        and "_arc_resolve_provider_client" not in new_content
-    ):
-        upgrade_pattern = re.compile(
-            r'(?P<block>^[ \t]*# HERMES_ARC_PATCH: apply runtime routing overrides from plugins\.\n'
-            r'(?:(?!^[ \t]{8}except Exception as exc:).+\n|\n)*)',
-            re.MULTILINE,
-        )
-        upgrade_match = upgrade_pattern.search(new_content)
-        if upgrade_match:
-            old_block = upgrade_match.group("block")
-            indent = re.match(r'^[ \t]*', old_block).group(0)
-            upgrade_block = f'''{indent}# HERMES_ARC_PATCH: apply runtime routing overrides from plugins.
-{indent}# Use Hermes' own provider resolver + switch_model() instead of
-{indent}# mutating self.provider/self.model directly.  This preserves
-{indent}# provider-specific api_mode, OAuth/subscriber credentials,
-{indent}# headers, context-compressor metadata, and client rebuild logic.
-{indent}if isinstance(_runtime_override, dict) and _runtime_override:
-{indent}    _arc_restore_main = bool(_runtime_override.get("restore_main"))
-{indent}    _arc_model = _runtime_override.get("model")
-{indent}    _arc_provider = _runtime_override.get("provider")
-{indent}    _arc_base_url = _runtime_override.get("base_url")
-{indent}    _arc_api_key = _runtime_override.get("api_key")
-{indent}    _arc_api_mode = _runtime_override.get("api_mode")
-{indent}    _arc_system_prompt = _runtime_override.get("system_prompt")
-
-{indent}    if not hasattr(self, "_hermes_arc_base_runtime"):
-{indent}        self._hermes_arc_base_runtime = {{
-{indent}            "model": getattr(self, "model", ""),
-{indent}            "provider": getattr(self, "provider", ""),
-{indent}            "base_url": getattr(self, "base_url", ""),
-{indent}            "api_key": getattr(self, "api_key", ""),
-{indent}            "api_mode": getattr(self, "api_mode", ""),
-{indent}        }}
-
-{indent}    if _arc_restore_main:
-{indent}        _arc_base = getattr(self, "_hermes_arc_base_runtime", None) or {{}}
-{indent}        _base_model = _arc_base.get("model")
-{indent}        _base_provider = _arc_base.get("provider")
-{indent}        if _base_model and _base_provider:
-{indent}            if hasattr(self, "switch_model"):
-{indent}                self.switch_model(
-{indent}                    _base_model,
-{indent}                    _base_provider,
-{indent}                    api_key=_arc_base.get("api_key", ""),
-{indent}                    base_url=_arc_base.get("base_url", ""),
-{indent}                    api_mode=_arc_base.get("api_mode", ""),
-{indent}                )
-{indent}            else:
-{indent}                self.model = str(_base_model)
-{indent}                self.provider = str(_base_provider)
-{indent}                if _arc_base.get("base_url"):
-{indent}                    self.base_url = str(_arc_base.get("base_url")).rstrip("/")
-{indent}                if _arc_base.get("api_key"):
-{indent}                    self.api_key = str(_arc_base.get("api_key"))
-{indent}            logger.info(
-{indent}                "hermes-arc: restored main runtime provider=%s model=%s",
-{indent}                getattr(self, "provider", ""),
-{indent}                getattr(self, "model", ""),
-{indent}            )
-{indent}    elif _arc_model or _arc_provider or _arc_base_url or _arc_api_key:
-{indent}        _target_provider = str(_arc_provider or getattr(self, "provider", "") or "auto")
-{indent}        _target_model = str(_arc_model or getattr(self, "model", ""))
-{indent}        _resolved_model = _target_model
-{indent}        _resolved_api_key = str(_arc_api_key or "")
-{indent}        _resolved_base_url = str(_arc_base_url or "")
-{indent}        _resolved_api_mode = str(_arc_api_mode or "")
-
-{indent}        try:
-{indent}            from agent.auxiliary_client import resolve_provider_client as _arc_resolve_provider_client
-{indent}            _arc_client, _arc_client_model = _arc_resolve_provider_client(
-{indent}                _target_provider,
-{indent}                model=_target_model,
-{indent}                raw_codex=True,
-{indent}                explicit_base_url=_resolved_base_url or None,
-{indent}                explicit_api_key=_resolved_api_key or None,
-{indent}                api_mode=_resolved_api_mode or None,
-{indent}                main_runtime=getattr(self, "_primary_runtime", None),
-{indent}            )
-{indent}            if _arc_client is not None:
-{indent}                _resolved_model = str(_arc_client_model or _target_model)
-{indent}                _resolved_api_key = str(getattr(_arc_client, "api_key", "") or _resolved_api_key)
-{indent}                _resolved_base_url = str(getattr(_arc_client, "base_url", "") or _resolved_base_url).rstrip("/")
-{indent}        except Exception as _arc_resolve_error:
-{indent}            logger.debug("hermes-arc: provider resolution skipped: %s", _arc_resolve_error)
-
-{indent}        if not _resolved_api_mode:
-{indent}            try:
-{indent}                from hermes_cli.providers import determine_api_mode as _arc_determine_api_mode
-{indent}                _resolved_api_mode = _arc_determine_api_mode(_target_provider, _resolved_base_url)
-{indent}            except Exception:
-{indent}                _resolved_api_mode = getattr(self, "api_mode", "")
-
-{indent}        if hasattr(self, "switch_model"):
-{indent}            self.switch_model(
-{indent}                _resolved_model,
-{indent}                _target_provider,
-{indent}                api_key=_resolved_api_key,
-{indent}                base_url=_resolved_base_url,
-{indent}                api_mode=_resolved_api_mode,
-{indent}            )
-{indent}        else:
-{indent}            self.model = str(_resolved_model)
-{indent}            self.provider = str(_target_provider)
-{indent}            if _resolved_base_url:
-{indent}                self.base_url = _resolved_base_url
-{indent}            if _resolved_api_key:
-{indent}                self.api_key = _resolved_api_key
-{indent}            if hasattr(self, "_client_kwargs"):
-{indent}                if _resolved_base_url:
-{indent}                    self._client_kwargs["base_url"] = self.base_url
-{indent}                if _resolved_api_key:
-{indent}                    self._client_kwargs["api_key"] = self.api_key
-{indent}            if (_resolved_base_url or _resolved_api_key) and hasattr(self, "_replace_primary_openai_client"):
-{indent}                try:
-{indent}                    if hasattr(self, "_apply_client_headers_for_base_url"):
-{indent}                        self._apply_client_headers_for_base_url(self.base_url)
-{indent}                    self._replace_primary_openai_client(reason="hermes_arc_runtime_override")
-{indent}                except Exception as _arc_client_error:
-{indent}                    logger.debug("hermes-arc: client refresh skipped: %s", _arc_client_error)
-
-{indent}        logger.info(
-{indent}            "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",
-{indent}            getattr(self, "provider", ""),
-{indent}            getattr(self, "model", ""),
-{indent}            getattr(self, "api_mode", ""),
-{indent}        )
-
-{indent}    if _arc_system_prompt:
-{indent}        _plugin_system_prompt = str(_arc_system_prompt)
-'''
-            new_content = new_content.replace(old_block, upgrade_block, 1)
-            print("🩹 Upgraded old ARC runtime patch to switch_model-compatible routing")
+    # ─── Patch 2: Add provider to transform_llm_output hook call ───
+    if "HERMES_ARC_TRANSFORM_PROVIDER_PATCH" not in new_content:
+        # Find the transform_llm_output invoke_hook call and add provider=self.provider
+        old_hook = '''                _transform_results = _invoke_hook(
+                    "transform_llm_output",
+                    response_text=final_response,
+                    session_id=self.session_id or "",
+                    model=self.model,
+                    platform=getattr(self, "platform", None) or "",
+                )'''
+        new_hook = '''                # HERMES_ARC_TRANSFORM_PROVIDER_PATCH: add provider for signature rebuild
+                _transform_results = _invoke_hook(
+                    "transform_llm_output",
+                    response_text=final_response,
+                    session_id=self.session_id or "",
+                    model=self.model,
+                    provider=self.provider,
+                    platform=getattr(self, "platform", None) or "",
+                )'''
+        if old_hook in new_content:
+            new_content = new_content.replace(old_hook, new_hook, 1)
         else:
-            print("⚠️  Could not locate old ARC runtime block — upgrade skipped")
+            print("⚠️  Could not locate transform_llm_output hook call — provider patch skipped")
 
-    if "HERMES_ARC_SYSTEM_PROMPT_PATCH" not in new_content:
-        # Patch 1: Add plugin_system_prompt parameter to _handle_max_iterations signature
-        sig_old = (
-            '    def _handle_max_iterations(self, messages: list, api_call_count: int) -> str:\n'
-        )
-        sig_new = (
-            '    def _handle_max_iterations(\n'
-            '        self,\n'
-            '        messages: list,\n'
-            '        api_call_count: int,\n'
-            '        plugin_system_prompt: str = "",\n'
-            '    ) -> str:\n'
-        )
-        if sig_old in new_content:
-            new_content = new_content.replace(sig_old, sig_new, 1)
-        else:
-            print("⚠️  Could not locate _handle_max_iterations signature — system_prompt patch skipped")
-            return new_content
-
-        # Patch 2: Use the parameter instead of the undefined local variable
-        sys_old = (
-            '            if self.ephemeral_system_prompt:\n'
-            '                effective_system = (effective_system + "\\n\\n" + self.ephemeral_system_prompt).strip()\n'
-        )
-        sys_new = (
-            '            if self.ephemeral_system_prompt:\n'
-            '                effective_system = (effective_system + "\\n\\n" + self.ephemeral_system_prompt).strip()\n'
-            '            # HERMES_ARC_SYSTEM_PROMPT_PATCH: topic/persona prompt from runtime_override\n'
-            '            if plugin_system_prompt:\n'
-            '                effective_system = (effective_system + "\\n\\n" + plugin_system_prompt).strip()\n'
-        )
-        if sys_old in new_content:
-            new_content = new_content.replace(sys_old, sys_new, 1)
-        else:
-            print("⚠️  Could not locate effective_system block — system_prompt patch skipped")
-
-        # Patch 3: Pass _plugin_system_prompt when calling _handle_max_iterations from run_conversation
-        call_old = (
-            '            final_response = self._handle_max_iterations(messages, api_call_count)\n'
-        )
-        call_new = (
-            '            final_response = self._handle_max_iterations(\n'
-            '                messages,\n'
-            '                api_call_count,\n'
-            '                plugin_system_prompt=_plugin_system_prompt,\n'
-            '            )\n'
-        )
-        if call_old in new_content:
-            new_content = new_content.replace(call_old, call_new, 1)
-        else:
-            print("⚠️  Could not locate _handle_max_iterations call site — system_prompt patch skipped")
-
-
+    # ─── Patch 3: Response suffix rendering (signature append) ───
     if "HERMES_ARC_RESPONSE_SUFFIX_PATCH" not in new_content:
-        final_response_pattern = re.compile(
-            r'^(?P<indent>\s*)final_response\s*=\s*assistant_message\.content(?:\s+or\s+["\']{2})?\s*$',
-            re.MULTILINE,
-        )
-        final_match = final_response_pattern.search(new_content)
-        if final_match:
-            indent = final_match.group("indent")
-            suffix_block = (
-                "\n"
-                f"{indent}# HERMES_ARC_RESPONSE_SUFFIX_PATCH: append routing signature\n"
-                f"{indent}try:\n"
-                f"{indent}    if isinstance(_runtime_override, dict):\n"
-                f"{indent}        _response_suffix = None\n"
-                f"{indent}        _arc_signature = _runtime_override.get(\"_arc_signature\")\n"
-                f"{indent}        if isinstance(_arc_signature, dict):\n"
-                f"{indent}            _arc_topic = str(_arc_signature.get(\"topic\") or \"general\")\n"
-                f"{indent}            _arc_routed_model = str(_arc_signature.get(\"routed_model\") or \"\")\n"
-                f"{indent}            _arc_routed_provider = str(_arc_signature.get(\"routed_provider\") or \"\")\n"
-                f"{indent}            _arc_final_model = str(getattr(self, \"model\", \"\") or _arc_routed_model or \"default\")\n"
-                f"{indent}            _arc_final_provider = str(getattr(self, \"provider\", \"\") or _arc_routed_provider or \"\")\n"
-                f"{indent}\n"
-                f"{indent}            def _arc_short_model(_model: str) -> str:\n"
-                f"{indent}                _short = str(_model or \"default\").split(\"/\")[-1]\n"
-                f"{indent}                if \":\" in _short:\n"
-                f"{indent}                    _short = _short.split(\":\")[0]\n"
-                f"{indent}                return _short or \"default\"\n"
-                f"{indent}\n"
-                f"{indent}            _final_label = _arc_short_model(_arc_final_model)\n"
-                f"{indent}            _routed_label = _arc_short_model(_arc_routed_model)\n"
-                f"{indent}            if (\n"
-                f"{indent}                _arc_routed_model\n"
-                f"{indent}                and (\n"
-                f"{indent}                    _arc_final_model != _arc_routed_model\n"
-                f"{indent}                    or _arc_final_provider != _arc_routed_provider\n"
-                f"{indent}                )\n"
-                f"{indent}            ):\n"
-                f"{indent}                _response_suffix = f\"\\n\\n- {{_final_label}} [{{_arc_topic}} | routed: {{_routed_label}}]\"\n"
-                f"{indent}            else:\n"
-                f"{indent}                _response_suffix = f\"\\n\\n- {{_final_label}} [{{_arc_topic}}]\"\n"
-                f"{indent}        else:\n"
-                f"{indent}            _response_suffix = _runtime_override.get(\"response_suffix\")\n"
-                f"{indent}        if _response_suffix:\n"
-                f"{indent}            final_response = f\"{{final_response}}{{_response_suffix}}\"\n"
-                f"{indent}except Exception as _arc_suffix_error:\n"
-                f"{indent}    logger.debug(\"hermes-arc: response_suffix append skipped: %s\", _arc_suffix_error)\n"
-            )
-            new_content = new_content[:final_match.end()] + suffix_block + new_content[final_match.end():]
-        else:
-            print("⚠️  Could not locate final_response assignment — response_suffix patch skipped")
+        # Insert after transform hook, before post_llm_call hook
+        suffix_marker = '''                logger.warning("transform_llm_output hook failed: %s", exc)
 
-    transform_hook_old = (
-        '                    response_text=final_response,\n'
-        '                    session_id=self.session_id or "",\n'
-        '                    model=self.model,\n'
-        '                    platform=getattr(self, "platform", None) or "",\n'
-        '                )\n'
-    )
-    transform_hook_new = (
-        '                    response_text=final_response,\n'
-        '                    session_id=self.session_id or "",\n'
-        '                    model=self.model,\n'
-        '                    provider=self.provider,\n'
-        '                    platform=getattr(self, "platform", None) or "",\n'
-        '                )\n'
-    )
-    if transform_hook_old in new_content:
-        new_content = new_content.replace(transform_hook_old, transform_hook_new, 1)
+        # Plugin hook: post_llm_call'''
+        suffix_new = '''                logger.warning("transform_llm_output hook failed: %s", exc)
+
+        # HERMES_ARC_RESPONSE_SUFFIX_PATCH: render ARC signature from
+        # _runtime_override (structured _arc_signature dict) and the final
+        # model/provider after any fallback occurred.
+        if final_response and not interrupted:
+            try:
+                _arc_sig = (_runtime_override or {}).get("_arc_signature")
+                if isinstance(_arc_sig, dict):
+                    try:
+                        from hermes_cli.plugins import invoke_hook as _arc_inv
+                        _arc_final_sig_results = _arc_inv(
+                            "transform_llm_output",
+                            response_text="",
+                            session_id=self.session_id or "",
+                            model=self.model,
+                            provider=self.provider,
+                            platform=getattr(self, "platform", None) or "",
+                            _arc_finalize=_arc_sig,
+                        )
+                        for _arc_hr in _arc_final_sig_results:
+                            if isinstance(_arc_hr, str) and _arc_hr:
+                                final_response = final_response.rstrip() + "\\n\\n" + _arc_hr
+                                break
+                    except Exception:
+                        _routed = _arc_sig.get("routed_model", "")
+                        _routed_p = _arc_sig.get("routed_provider", "")
+                        _final_m = self.model or ""
+                        _final_p = self.provider or ""
+                        _topic = _arc_sig.get("topic", "")
+                        _short = lambda m: m.split("/")[-1] if "/" in m else m
+                        if _short(_final_m) == _short(_routed) and _final_p == _routed_p:
+                            _arc_suffix = f"- {_short(_final_m)} [{_topic}]"
+                        else:
+                            _arc_suffix = f"- {_short(_final_m)} [{_topic} | routed: {_short(_routed)}]"
+                        if _arc_suffix:
+                            final_response = final_response.rstrip() + "\\n\\n" + _arc_suffix
+            except Exception:
+                logger.debug("hermes-arc: response suffix render failed")
+
+        # Plugin hook: post_llm_call'''
+        if suffix_marker in new_content:
+            new_content = new_content.replace(suffix_marker, suffix_new, 1)
+        else:
+            print("⚠️  Could not locate transform-to-post_llm_call boundary — suffix patch skipped")
+
+    # ─── Patch 4: system_prompt support (pre_llm_call → inject before context assembly) ───
+    if "HERMES_ARC_SYSTEM_PROMPT_PATCH" not in new_content:
+        # Add _plugin_system_prompt init alongside _runtime_override
+        old_runtime_init = (
+            '        # HERMES_ARC_PATCH: runtime_override support\n'
+            '        _runtime_override = {}\n'
+        )
+        new_runtime_init = (
+            '        # HERMES_ARC_PATCH: runtime_override support\n'
+            '        _runtime_override = {}\n'
+            '        _plugin_system_prompt = ""\n'
+        )
+        if old_runtime_init in new_content:
+            new_content = new_content.replace(old_runtime_init, new_runtime_init, 1)
+
+        # Add system_prompt extraction from runtime_override, after context assembly
+        old_ctx_end = '                    logger.info(\n                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",\n'
+        new_ctx_end = '''                    logger.info(
+                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",
+'''
+        # We need to inject system_prompt capture right after the runtime block
+        # Find the end of the runtime block and inject system_prompt handling
+        inject_point = '                    logger.info(\n                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",\n                        getattr(self, "provider", ""),\n                        getattr(self, "model", ""),\n                        getattr(self, "api_mode", ""),\n                    )\n'
+        if inject_point in new_content:
+            after_inject = '''                    logger.info(
+                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",
+                        getattr(self, "provider", ""),
+                        getattr(self, "model", ""),
+                        getattr(self, "api_mode", ""),
+                    )
+
+                # HERMES_ARC_SYSTEM_PROMPT_PATCH: capture system prompt override
+                _arc_sys = _runtime_override.get("system_prompt")
+                if _arc_sys:
+                    _plugin_system_prompt = str(_arc_sys)
+                    _ctx_parts.append(_plugin_system_prompt)
+'''
+            new_content = new_content.replace(inject_point, after_inject, 1)
+        else:
+            print("⚠️  Could not locate runtime override log line — system prompt patch skipped")
 
     return new_content
 
 
-def backup_file(path: Path) -> Path:
-    """Create a backup of the file."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = path.with_suffix(f".py.{timestamp}{BACKUP_SUFFIX}")
-    shutil.copy2(path, backup_path)
-    print(f"📦 Backup created: {backup_path}")
-    return backup_path
+def verify_patch(content: str) -> dict:
+    """Verify all ARC patches are correctly applied."""
+    checks = {}
 
+    checks["HERMES_ARC_PATCH marker"] = "HERMES_ARC_PATCH: runtime_override support" in content
+    checks["_runtime_override init"] = "_runtime_override = {}" in content
+    checks["runtime_override collect"] = '_arc_ov = r.get("runtime_override")' in content
+    checks["switch_model call"] = "switch_model(" in content and "_arc_resolve_provider_client" in content
+    checks["_hermes_arc_base_runtime"] = "_hermes_arc_base_runtime" in content
+    checks["HERMES_ARC_RESPONSE_SUFFIX_PATCH"] = "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content
+    checks["_arc_signature"] = "_arc_signature" in content
+    checks["HERMES_ARC_TRANSFORM_PROVIDER_PATCH"] = "HERMES_ARC_TRANSFORM_PROVIDER_PATCH" in content
+    checks["provider=self.provider in transform hook"] = bool(
+        re.search(r'transform_llm_output[\s\S]{0,200}provider\s*=\s*self\.provider', content)
+    )
+    checks["HERMES_ARC_SYSTEM_PROMPT_PATCH"] = "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content
 
-def verify_patch(path: Path) -> bool:
-    """Verify that the patch is correctly applied."""
-    content = path.read_text()
-
-    checks = {
-        "HERMES_ARC_PATCH marker": "HERMES_ARC_PATCH" in content,
-        "system_prompt injection": "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content or "plugin_system_prompt" in content,
-        "response_suffix append": "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content and "_arc_signature" in content,
-        "transform hook final provider": "transform_llm_output" in content and "provider=self.provider" in content,
-        "pre_llm_call hook intact": "pre_llm_call" in content,
-        "runtime_override handling": "runtime_override" in content,
-        "switch_model runtime routing": "_arc_resolve_provider_client" in content and "restore_main" in content,
-        "max_iterations accepts plugin_system_prompt": 'def _handle_max_iterations(' in content and "plugin_system_prompt: str" in content,
-    }
-
-    all_ok = True
-    for name, ok in checks.items():
-        status = "✅" if ok else "❌"
-        print(f"  {status} {name}")
-        if not ok:
-            all_ok = False
-
-    return all_ok
+    return checks
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Hermes ARC — run_agent.py compatibility checker & patcher"
-    )
-    parser.add_argument(
-        "--check", action="store_true",
-        help="Check compatibility only (no changes)"
-    )
-    parser.add_argument(
-        "--patch", action="store_true",
-        help="Check and apply patch if needed"
-    )
-    parser.add_argument(
-        "--verify", action="store_true",
-        help="Verify patch is applied correctly"
-    )
-    parser.add_argument(
-        "--force", action="store_true",
-        help="Force re-apply patch even if already present"
-    )
-    parser.add_argument(
-        "--path", type=str, default=None,
-        help="Custom path to run_agent.py"
-    )
-    parser.add_argument(
-        "--list", action="store_true",
-        help="List discovered Hermes run_agent.py candidates"
-    )
-
+    parser = argparse.ArgumentParser(description="Hermes ARC run_agent.py patcher")
+    parser.add_argument("--check", action="store_true", help="Check only")
+    parser.add_argument("--patch", action="store_true", help="Check and patch if needed")
+    parser.add_argument("--verify", action="store_true", help="Verify patch applied")
+    parser.add_argument("--path", type=str, help="Explicit path to run_agent.py")
     args = parser.parse_args()
-
-    if args.list:
-        candidates = find_run_agent_candidates()
-        if not candidates:
-            print("No Hermes run_agent.py candidates found")
-            sys.exit(1)
-        for path in candidates:
-            print(path)
-        sys.exit(0)
 
     if not any([args.check, args.patch, args.verify]):
         parser.print_help()
-        sys.exit(0)
+        sys.exit(1)
 
-    # Locate run_agent.py
-    run_agent_path = choose_run_agent_path(args.path, interactive=True)
+    path = choose_run_agent_path(args.path)
+    content = path.read_text(encoding="utf-8", errors="ignore")
 
-    print(f"🔍 Target: {run_agent_path}")
-    print(f"   Size: {run_agent_path.stat().st_size:,} bytes")
-    print()
-
-    content = run_agent_path.read_text()
-
-    # ── Verify mode ──────────────────────────────────────────────────────
-    if args.verify:
-        print("🔎 Verifying patch...")
-        if verify_patch(run_agent_path):
-            print("\n✅ All checks passed — Hermes ARC patch is active")
-            sys.exit(0)
+    if args.check:
+        results = check_runtime_override_handling(content)
+        print("🔍 Hermes ARC compatibility check:")
+        for key, val in results.items():
+            status = "✅" if val else "❌"
+            print(f"  {status} {key}")
+        if needs_patch(results):
+            print("\n⚠️  Patch needed. Run: python3 patch_run_agent.py --patch")
         else:
-            print("\n❌ Some checks failed — patch may not be applied correctly")
-            sys.exit(1)
+            print("\n✅ All checks passed — no patch needed.")
 
-    # ── Check mode ───────────────────────────────────────────────────────
-    print("🔎 Checking runtime_override handling...")
-    results = check_runtime_override_handling(content)
-
-    all_ok = True
-    for name, ok in results.items():
-        status = "✅" if ok else "❌"
-        print(f"  {status} {name}")
-        if not ok:
-            all_ok = False
-
-    print()
-
-    if all_ok:
-        print("✅ run_agent.py is fully compatible with Hermes ARC")
-        print("   runtime_override is handled with switch_model-compatible routing")
-        sys.exit(0)
-
-    # ── Patch mode ───────────────────────────────────────────────────────
     if args.patch:
-        if not needs_patch(results):
-            print("ℹ️  No critical issues found — patch not required")
-            sys.exit(0)
-
-        print("⚠️  Compatibility issues detected — patch needed")
-        print()
-
-        # Backup
-        backup_file(run_agent_path)
-
-        # Apply patch
-        new_content = apply_patch(run_agent_path, content)
-
+        new_content = apply_patch(path, content)
         if new_content == content:
-            print("⚠️  No changes made — patch could not be applied")
-            sys.exit(1)
-
-        run_agent_path.write_text(new_content)
-        print("✅ Patch applied successfully!")
-        print()
-
-        # Verify
-        print("🔎 Verifying...")
-        if verify_patch(run_agent_path):
-            print("\n✅ Hermes ARC patch verified — restart Hermes to activate")
-            print("   hermes gateway restart")
+            print("✅ Already patched or patch could not be applied — no changes made.")
         else:
-            print("\n⚠️  Verification incomplete — check manually")
-    else:
-        print("ℹ️  Run with --patch to apply the fix")
+            backup = path.with_suffix(path.suffix + BACKUP_SUFFIX)
+            if not backup.exists():
+                shutil.copy2(path, backup)
+                print(f"📦 Backup created: {backup}")
+            path.write_text(new_content, encoding="utf-8")
+            print("✅ Patch applied successfully.")
+
+    if args.verify:
+        checks = verify_patch(content)
+        print("🔍 Hermes ARC patch verification:")
+        all_ok = True
+        for key, val in checks.items():
+            status = "✅" if val else "❌"
+            print(f"  {status} {key}")
+            if not val:
+                all_ok = False
+        if all_ok:
+            print("\n✅ All patches verified successfully.")
+        else:
+            print("\n❌ Some patches missing or incomplete.")
 
 
 if __name__ == "__main__":

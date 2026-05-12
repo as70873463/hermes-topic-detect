@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.2.0 - 2026-05-12
+
+### Breaking
+- Full rewrite of core compatibility patch to match Hermes Agent v0.13+ plugin hook architecture. After 62 upstream commits refactored `pre_llm_call` (now returns context-only, no `runtime_override` dict) and removed `response_suffix` / `plugin_system_prompt` mechanisms entirely, v1.1.x patches are incompatible.
+
+### Added
+- `switch_model()` integration: runtime model/provider routing now uses Hermes' native `switch_model()` method instead of direct attribute mutation. This preserves provider-specific `api_mode`, OAuth credentials, headers, context-compressor metadata, and client rebuild logic.
+- `provider=self.provider` injection into `transform_llm_output` hook — enables signature builder to detect fallback (final model differs from routed model).
+- `_arc_signature` dict in `runtime_override` — structured routing metadata (`topic`, `routed_model`, `routed_provider`) carried into post-loop for final-render.
+- System prompt override injected as part of `_ctx_parts` into user message, preserving prompt cache prefix stability.
+
+### Changed
+- `patch_run_agent.py` completely rewritten for v1.2.0:
+  - Patch 1A: `_runtime_override` dict init before `pre_llm_call`
+  - Patch 1B: collect `runtime_override` from hook results
+  - Patch 1C: apply routing via `switch_model()` (with `resolve_provider_client` + `determine_api_mode`)
+  - Patch 2: inject `provider=self.provider` into `transform_llm_output` hook
+  - Patch 3: `_arc_signature` suffix render (fallback-aware)
+  - Patch 4: system prompt capture as `_ctx_parts` member
+- Plugin `__init__.py` unchanged — structurally compatible with v1.2.0 patch (sends `runtime_override` dict, reads `provider` from kwargs)
+- Config topic models updated:
+  - `software_it` → `nvidia/nemotron-3-super-120b-a12b:free`
+  - `math` → `inclusionai/ring-2.6-1t:free`
+  - `science` → `nvidia/nemotron-3-super-120b-a12b:free`
+  - `business_finance` → `openai/gpt-oss-120b:free`
+  - `legal_government` → `openai/gpt-oss-120b:free`
+  - `medicine_healthcare` → `openrouter/owl-alpha`
+  - `writing_language` → `google/gemma-4-31b-it:free`
+  - `entertainment_media` → empty (falls back to main model)
+
+### Deprecated
+- PR #23898 (`_plugin_system_prompt` scope fix) — upstream removed the entire mechanism; v1.2.0 uses a different approach that doesn't require patching `_handle_max_iterations()`.
+
 ## 1.1.8 - 2026-05-12
 
 ### Fixed
