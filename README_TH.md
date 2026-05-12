@@ -101,6 +101,61 @@ Shown suffix: - gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b
 
 ---
 
+## ระบบ Fallback Chain
+
+แต่ละ topic สามารถกำหนด `fallbacks` เป็น list ได้ เมื่อ model ที่ route ไปหลัก ล้มเหลว (429, 503, timeout, error) Hermes จะลอง fallback ทีละตัว **ตามลำดับ** ก่อนจะยอมกลับไปใช้ main/global model ของ agent
+
+โครงสร้าง chain:
+
+```text
+primary model  →  topic fallback 1  →  topic fallback 2  →  ...  →  Hermes main/global model
+```
+
+**พฤติกรรมสำคัญ:**
+
+- `fallbacks` ไม่บังคับ — topic ไหนไม่ใส่ก็ทำงานแบบเดิม
+- แต่ละ fallback entry เป็น provider+model+config เต็มรูปแบบ เหมือน shape ของ topic หลัก
+- Hermes จัดการ retry ภายในผ่าน `runtime_override` ไม่ต้องแก้ plugin code เมื่อเพิ่มหรือสลับลำดับ fallback
+- Signature ที่ส่งกลับใช้ **model ที่ตอบจริง** จึงเห็นได้ว่า model ไหนจัดการ request นั้น
+
+ตัวอย่าง signature เมื่อ fallback ทำงาน:
+
+```text
+gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b]
+```
+
+หมายความว่า ARC route ไป `software_it` แต่ model ที่ตอบจริงหลัง fallback คือ `gemini-3-flash`
+
+ตัวอย่าง config:
+
+```yaml
+topic_detect:
+  topics:
+    software_it:
+      provider: openrouter
+      model: inclusionai/ring-2.6-1t:free
+      fallbacks:
+        - provider: openrouter
+          model: baidu/cobuddy:free
+        - provider: nous
+          model: qwen/qwen3.6-plus
+```
+
+Fallback chain แนะนำตามหัวข้อ (ปรับตามงบและ latency ที่ต้องการ):
+
+| Topic             | Primary                   | Fallback 1                | Fallback 2             |
+|-------------------|---------------------------|---------------------------|------------------------|
+| `software_it`     | ring-2.6-1t               | cobuddy:free              | qwen3.6-plus           |
+| `math`            | qwen3.6-plus              | ring-2.6-1t               | main/global            |
+| `science`         | qwen3.6-plus              | owl-alpha                 | main/global            |
+| `business_finance`| qwen3.6-plus              | owl-alpha                 | main/global            |
+| `legal_government`| owl-alpha                 | qwen3.6-plus              | main/global            |
+| `medicine_healthcare`| qwen3.6-plus            | owl-alpha                 | main/global            |
+| `writing_language`| owl-alpha                | step-3.5-flash            | main/global            |
+| `entertainment_media`| step-3.5-flash          | owl-alpha                 | main/global            |
+
+---
+
 ## ความสัมพันธ์กับ Hermes Core
 
 ตอนนี้ ARC ทำงานเป็น Hermes plugin และอาจต้องใช้ compatibility patch ใน Hermes version ที่ `pre_llm_call` ยัง apply runtime override ไม่ได้

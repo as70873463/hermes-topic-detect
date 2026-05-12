@@ -101,6 +101,61 @@ Shown suffix: - gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b
 
 ---
 
+## Topic Fallback Chains
+
+Each topic can define an optional `fallbacks` list. When the routed model fails (429, 503, timeout, error), Hermes tries the fallback entries **in order** before giving up to the agent's global main model.
+
+Chain structure:
+
+```text
+primary model  →  topic fallback 1  →  topic fallback 2  →  ...  →  Hermes main/global model
+```
+
+**Key behaviors:**
+
+- Fallbacks are entirely optional. Topics without `fallbacks` behave as before.
+- Each fallback entry is a full provider+model+config object, same shape as the primary topic entry.
+- Hermes handles the retry internally via `runtime_override`. No plugin code change is needed when you add or reorder fallbacks.
+- The final signature always reflects the **model that actually responded**, so you can see whether the primary or a fallback handled the request.
+
+Example signature when a fallback fires:
+
+```text
+gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b]
+```
+
+This means ARC wanted `software_it`, but the final response came from `gemini-3-flash` after the primary fell back.
+
+Config example:
+
+```yaml
+topic_detect:
+  topics:
+    software_it:
+      provider: openrouter
+      model: inclusionai/ring-2.6-1t:free
+      fallbacks:
+        - provider: openrouter
+          model: baidu/cobuddy:free
+        - provider: nous
+          model: qwen/qwen3.6-plus
+```
+
+Default fallback chain recommendations (adjust to your budget and latency needs):
+
+| Topic           | Primary                    | Fallback 1                  | Fallback 2            |
+|-----------------|----------------------------|-----------------------------|-----------------------|
+| `software_it`   | ring-2.6-1t                | cobuddy:free                | qwen3.6-plus          |
+| `math`          | qwen3.6-plus               | ring-2.6-1t                 | main/global           |
+| `science`       | qwen3.6-plus               | owl-alpha                   | main/global           |
+| `business_finance` | qwen3.6-plus             | owl-alpha                   | main/global           |
+| `legal_government` | owl-alpha               | qwen3.6-plus                | main/global           |
+| `medicine_healthcare` | qwen3.6-plus           | owl-alpha                   | main/global           |
+| `writing_language` | owl-alpha               | step-3.5-flash              | main/global           |
+| `entertainment_media` | step-3.5-flash         | owl-alpha                   | main/global           |
+
+---
+
 ## Relationship to Hermes Core
 
 ARC currently works as a Hermes plugin and may use a compatibility patch on Hermes versions where `pre_llm_call` cannot yet apply runtime overrides.
