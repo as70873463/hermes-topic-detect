@@ -62,11 +62,11 @@ def _strip_skipdetect_prefix(message: str | None) -> str | None:
     text = str(message or "")
     stripped = text.lstrip()
 
-    if stripped == "/skipdetect":
-        return ""
-
-    if stripped.startswith("/skipdetect "):
-        return stripped[len("/skipdetect "):].lstrip()
+    prefixes = ("/skipdetect ", "/skipdetect", "!skipdetect ", "!skipdetect", "@@skipdetect ", "@@skipdetect")
+    for pfx in prefixes:
+        if stripped == pfx or stripped.startswith(pfx):
+            remainder = stripped[len(pfx):].lstrip()
+            return remainder if remainder else ""
 
     return None
 

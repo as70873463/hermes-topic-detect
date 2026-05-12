@@ -46,33 +46,39 @@ topic_detect:
         mod.classify = fail_classify
         mod._CORE_RESPONSE_SUFFIX_SUPPORTED = False
 
+        # Test /skipdetect prefix
         result = mod._pre_llm_call_impl(
             user_message="/skipdetect แก้พอร์ตในเว็บอ่านนิยาย",
             conversation_history=[],
             model="gpt-5.5",
             provider="openai-codex",
         )
+
+        runtime = result["runtime_override"]
+        assert runtime["restore_main"] is True
+        assert runtime["user_message"] == "แก้พอร์ตในเว็บอ่านนิยาย"
+        assert "model" not in runtime
+        assert "provider" not in runtime
+
+        suffix = mod._transform_llm_output(
+            "answer",
+            model="gpt-5.5",
+            provider="openai-codex",
+        )
+        assert suffix == "answer\n\n- gpt-5.5 [skip]", suffix
     finally:
         if old_home is None:
             os.environ.pop("HOME", None)
         else:
             os.environ["HOME"] = old_home
 
-runtime = result["runtime_override"]
-assert runtime["restore_main"] is True
-assert runtime["user_message"] == "แก้พอร์ตในเว็บอ่านนิยาย"
-assert "model" not in runtime
-assert "provider" not in runtime
+# Test prefix stripping for all variants
+for pfx in ("/skipdetect", "!skipdetect", "@@skipdetect"):
+    assert mod._strip_skipdetect_prefix(f"{pfx} calculate ROI") == "calculate ROI"
+    assert mod._strip_skipdetect_prefix(f"  {pfx}  hello") == "hello"
+    assert mod._strip_skipdetect_prefix(f"{pfx}") == ""
 
-suffix = mod._transform_llm_output(
-    "answer",
-    model="gpt-5.5",
-    provider="openai-codex",
-)
-assert suffix == "answer\n\n- gpt-5.5 [skip]", suffix
-
-assert mod._strip_skipdetect_prefix("/skipdetect calculate ROI") == "calculate ROI"
-assert mod._strip_skipdetect_prefix("   /skipdetect calculate ROI") == "calculate ROI"
-assert mod._strip_skipdetect_prefix("แก้พอร์ตปกติ") is None
+assert mod._strip_skipdetect_prefix("ปกติ") is None
+assert mod._strip_skipdetect_prefix("/skip") is None
 
 print("PASS | /skipdetect bypasses classifier, restores main, strips prefix, signs [skip]")
