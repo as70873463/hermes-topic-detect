@@ -105,6 +105,8 @@ Shown suffix: - gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b
 
 Each topic can define an optional `fallbacks` list. When the routed model fails (429, 503, timeout, error), Hermes tries the fallback entries **in order** before giving up to the agent's global main model.
 
+For the full operational guide, see [`docs/FALLBACK_CHAINS.md`](docs/FALLBACK_CHAINS.md).
+
 Chain structure:
 
 ```text
@@ -399,6 +401,7 @@ See [`docs/REPO_LAYOUT.md`](docs/REPO_LAYOUT.md).
 Additional design notes:
 
 - [`docs/SIGNATURE_FLOW.md`](docs/SIGNATURE_FLOW.md) — how final-model-aware signatures are rendered.
+- [`docs/FALLBACK_CHAINS.md`](docs/FALLBACK_CHAINS.md) — how topic-scoped fallback chains are configured and interpreted.
 - [`docs/V2_REWRITE_PLAN.md`](docs/V2_REWRITE_PLAN.md) — v2 action-first routing rewrite plan.
 - [`docs/V3_SMART_ROUTER.md`](docs/V3_SMART_ROUTER.md) — future smart-router direction.
 

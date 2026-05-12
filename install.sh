@@ -150,6 +150,7 @@ FILES=(
   CHANGELOG.md
   docs/SIGNATURE_FLOW.md
   docs/REPO_LAYOUT.md
+  docs/FALLBACK_CHAINS.md
   docs/V2_REWRITE_PLAN.md
   docs/V3_SMART_ROUTER.md
 )

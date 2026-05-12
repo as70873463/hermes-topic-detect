@@ -105,6 +105,8 @@ Shown suffix: - gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b
 
 แต่ละ topic สามารถกำหนด `fallbacks` เป็น list ได้ เมื่อ model ที่ route ไปหลัก ล้มเหลว (429, 503, timeout, error) Hermes จะลอง fallback ทีละตัว **ตามลำดับ** ก่อนจะยอมกลับไปใช้ main/global model ของ agent
 
+คู่มือ operational แบบละเอียดอยู่ที่ [`docs/FALLBACK_CHAINS.md`](docs/FALLBACK_CHAINS.md)
+
 โครงสร้าง chain:
 
 ```text
@@ -397,6 +399,7 @@ runtime_override._arc_signature
 Design notes เพิ่มเติม:
 
 - [`docs/SIGNATURE_FLOW.md`](docs/SIGNATURE_FLOW.md) — flow ของ final-model-aware signatures
+- [`docs/FALLBACK_CHAINS.md`](docs/FALLBACK_CHAINS.md) — วิธี config และอ่านผล topic-scoped fallback chains
 - [`docs/V2_REWRITE_PLAN.md`](docs/V2_REWRITE_PLAN.md) — แผน rewrite v2 แบบ action-first routing
 - [`docs/V3_SMART_ROUTER.md`](docs/V3_SMART_ROUTER.md) — ทิศทาง smart-router ในอนาคต
 

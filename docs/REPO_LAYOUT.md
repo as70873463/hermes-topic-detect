@@ -23,7 +23,7 @@ These files are installed into `~/.hermes/plugins/topic_detect`:
 ## Development-only files
 
 - `tests/` — smoke tests for classifier and signature finalize rendering
-- `docs/` — design notes and operational references
+- `docs/` — design notes and operational references, including fallback chains
 - `.github/workflows/` — CI smoke checks
 - `pyproject.toml` — local tooling metadata
 
