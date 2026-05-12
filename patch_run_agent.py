@@ -151,7 +151,7 @@ def check_runtime_override_handling(content: str) -> dict:
     )
     results["handles_response_suffix"] = bool(
         "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content
-        or re.search(r'response_suffix', content)
+        and "_arc_signature" in content
     )
     return results
 
@@ -181,6 +181,7 @@ def apply_patch(path: Path, content: str) -> str:
     if (
         "HERMES_ARC_PATCH" in content
         and "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content
+        and "_arc_signature" in content
         and "_arc_resolve_provider_client" in content
         and "restore_main" in content
     ):
@@ -563,7 +564,35 @@ def apply_patch(path: Path, content: str) -> str:
                 f"{indent}# HERMES_ARC_RESPONSE_SUFFIX_PATCH: append routing signature\n"
                 f"{indent}try:\n"
                 f"{indent}    if isinstance(_runtime_override, dict):\n"
-                f"{indent}        _response_suffix = _runtime_override.get(\"response_suffix\")\n"
+                f"{indent}        _response_suffix = None\n"
+                f"{indent}        _arc_signature = _runtime_override.get(\"_arc_signature\")\n"
+                f"{indent}        if isinstance(_arc_signature, dict):\n"
+                f"{indent}            _arc_topic = str(_arc_signature.get(\"topic\") or \"general\")\n"
+                f"{indent}            _arc_routed_model = str(_arc_signature.get(\"routed_model\") or \"\")\n"
+                f"{indent}            _arc_routed_provider = str(_arc_signature.get(\"routed_provider\") or \"\")\n"
+                f"{indent}            _arc_final_model = str(getattr(self, \"model\", \"\") or _arc_routed_model or \"default\")\n"
+                f"{indent}            _arc_final_provider = str(getattr(self, \"provider\", \"\") or _arc_routed_provider or \"\")\n"
+                f"{indent}\n"
+                f"{indent}            def _arc_short_model(_model: str) -> str:\n"
+                f"{indent}                _short = str(_model or \"default\").split(\"/\")[-1]\n"
+                f"{indent}                if \":\" in _short:\n"
+                f"{indent}                    _short = _short.split(\":\")[0]\n"
+                f"{indent}                return _short or \"default\"\n"
+                f"{indent}\n"
+                f"{indent}            _final_label = _arc_short_model(_arc_final_model)\n"
+                f"{indent}            _routed_label = _arc_short_model(_arc_routed_model)\n"
+                f"{indent}            if (\n"
+                f"{indent}                _arc_routed_model\n"
+                f"{indent}                and (\n"
+                f"{indent}                    _arc_final_model != _arc_routed_model\n"
+                f"{indent}                    or _arc_final_provider != _arc_routed_provider\n"
+                f"{indent}                )\n"
+                f"{indent}            ):\n"
+                f"{indent}                _response_suffix = f\"\\n\\n- {{_final_label}} [{{_arc_topic}} | routed: {{_routed_label}}]\"\n"
+                f"{indent}            else:\n"
+                f"{indent}                _response_suffix = f\"\\n\\n- {{_final_label}} [{{_arc_topic}}]\"\n"
+                f"{indent}        else:\n"
+                f"{indent}            _response_suffix = _runtime_override.get(\"response_suffix\")\n"
                 f"{indent}        if _response_suffix:\n"
                 f"{indent}            final_response = f\"{{final_response}}{{_response_suffix}}\"\n"
                 f"{indent}except Exception as _arc_suffix_error:\n"
@@ -572,6 +601,24 @@ def apply_patch(path: Path, content: str) -> str:
             new_content = new_content[:final_match.end()] + suffix_block + new_content[final_match.end():]
         else:
             print("⚠️  Could not locate final_response assignment — response_suffix patch skipped")
+
+    transform_hook_old = (
+        '                    response_text=final_response,\n'
+        '                    session_id=self.session_id or "",\n'
+        '                    model=self.model,\n'
+        '                    platform=getattr(self, "platform", None) or "",\n'
+        '                )\n'
+    )
+    transform_hook_new = (
+        '                    response_text=final_response,\n'
+        '                    session_id=self.session_id or "",\n'
+        '                    model=self.model,\n'
+        '                    provider=self.provider,\n'
+        '                    platform=getattr(self, "platform", None) or "",\n'
+        '                )\n'
+    )
+    if transform_hook_old in new_content:
+        new_content = new_content.replace(transform_hook_old, transform_hook_new, 1)
 
     return new_content
 
@@ -592,7 +639,8 @@ def verify_patch(path: Path) -> bool:
     checks = {
         "HERMES_ARC_PATCH marker": "HERMES_ARC_PATCH" in content,
         "system_prompt injection": "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content or "plugin_system_prompt" in content,
-        "response_suffix append": "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content,
+        "response_suffix append": "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content and "_arc_signature" in content,
+        "transform hook final provider": "transform_llm_output" in content and "provider=self.provider" in content,
         "pre_llm_call hook intact": "pre_llm_call" in content,
         "runtime_override handling": "runtime_override" in content,
         "switch_model runtime routing": "_arc_resolve_provider_client" in content and "restore_main" in content,

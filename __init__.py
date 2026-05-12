@@ -8,7 +8,7 @@ from .agent_loader import get_agent_prompt
 from .classifier import classify
 from .config import load_config
 from .semantic import semantic_classify
-from .signature import build_signature
+from .signature import build_final_signature, build_signature
 from .state import TopicState
 from .update_checker import maybe_log_update_notice
 
@@ -287,17 +287,29 @@ def _pre_llm_call_impl(**kwargs):
     )
 
     if cfg.signature_enabled and _core_supports_response_suffix():
-        # Patched Hermes cores consume response_suffix from runtime_override.
-        # Keep it inside the same dict the core already merges; a top-level
-        # response_suffix is ignored by older ARC patches in run_agent.py.
+        # Patched Hermes cores consume response_suffix metadata from
+        # runtime_override. Store structured ARC data so the core can render the
+        # signature with the final responder after fallback, not just the model
+        # ARC originally routed to.
         updates = dict(updates)
+        updates["_arc_signature"] = {
+            "topic": display_topic,
+            "routed_model": signature_model,
+            "routed_provider": target.provider if target else str(kwargs.get("provider") or ""),
+        }
+        # Backward-compatible fallback for patched cores older than the
+        # structured _arc_signature renderer.
         updates["response_suffix"] = f"\n\n{signature}"
         _LAST_SIGNATURE = None
     elif cfg.signature_enabled:
         # Compatibility with Hermes builds that do not yet consume
-        # runtime_override.response_suffix. transform_llm_output will append
-        # the signature once after the final response is produced.
-        _LAST_SIGNATURE = signature
+        # runtime_override.response_suffix. transform_llm_output receives the
+        # final model after fallback and rebuilds the visible signature there.
+        _LAST_SIGNATURE = {
+            "topic": display_topic,
+            "routed_model": signature_model,
+            "routed_provider": target.provider if target else str(kwargs.get("provider") or ""),
+        }
     else:
         _LAST_SIGNATURE = None
 
@@ -331,6 +343,9 @@ def _transform_llm_output(response_text: str, **kwargs) -> str | None:
 
     sig = _LAST_SIGNATURE
     _LAST_SIGNATURE = None
+
+    if isinstance(sig, dict):
+        return f"{response_text}\n\n{build_final_signature(routed_model=sig.get('routed_model'), final_model=kwargs.get('model'), topic=sig.get('topic'), routed_provider=sig.get('routed_provider'), final_provider=kwargs.get('provider'))}"
 
     if sig:
         return f"{response_text}\n\n{sig}"

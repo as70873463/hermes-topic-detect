@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.8 - 2026-05-12
+
+### Fixed
+- Signatures now identify the model that actually produced the final answer after Hermes fallback. When ARC routes to one model but the API call rate-limits/fails and Hermes switches to fallback, the suffix renders the final responder first and preserves the routed model as context, e.g. `- owl-alpha [software_it | routed: gemma-4-31b]`.
+- The legacy `transform_llm_output` compatibility path also rebuilds signatures from the final model when available.
+
 ## 1.1.7 - 2026-05-11
 
 ### Fixed
