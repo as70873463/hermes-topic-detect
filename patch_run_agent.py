@@ -143,6 +143,7 @@ def check_runtime_override_handling(content: str) -> dict:
     results["sends_provider_in_transform_hook"] = bool(
         re.search(r'transform_llm_output.*provider\s*=\s*self\.provider', content, re.DOTALL)
     )
+    results["supports_topic_fallback_chain"] = "HERMES_ARC_TOPIC_FALLBACK_PATCH" in content
 
     return results
 
@@ -156,6 +157,7 @@ def needs_patch(results: dict) -> bool:
         "uses_switch_model_runtime",
         "handles_response_suffix",
         "sends_provider_in_transform_hook",
+        "supports_topic_fallback_chain",
     ]
     return not all(results.get(k, False) for k in required)
 
@@ -401,6 +403,55 @@ def apply_patch(path: Path, content: str) -> str:
         else:
             print("⚠️  Could not locate post_llm_call hook boundary — suffix patch skipped")
 
+    # ─── Patch 5: topic-scoped fallback chains ───
+    if "HERMES_ARC_TOPIC_FALLBACK_PATCH" not in new_content:
+        modern_old = '''            self.switch_model(new_model, new_provider, api_key=api_key, base_url=base_url, api_mode=api_mode)
+            # ``switch_model`` deliberately prunes fallback entries for
+'''
+        modern_new = '''            self.switch_model(new_model, new_provider, api_key=api_key, base_url=base_url, api_mode=api_mode)
+            # HERMES_ARC_TOPIC_FALLBACK_PATCH: allow router plugins to scope
+            # the fallback chain for this runtime override before falling back
+            # to the agent's global chain.
+            _override_fallback_chain = runtime_override.get("fallback_chain")
+            if isinstance(_override_fallback_chain, list):
+                fallback_chain = [
+                    f for f in _override_fallback_chain
+                    if isinstance(f, dict) and f.get("provider") and f.get("model")
+                ]
+                fallback_model = fallback_chain[0] if fallback_chain else None
+                fallback_index = 0
+            # ``switch_model`` deliberately prunes fallback entries for
+'''
+        legacy_old = '''                    logger.info(
+                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",
+'''
+        legacy_new = '''                    # HERMES_ARC_TOPIC_FALLBACK_PATCH: optional topic-scoped
+                    # fallback chain supplied by topic_detect runtime_override.
+                    _arc_fb_chain_raw = _runtime_override.get("fallback_chain")
+                    if isinstance(_arc_fb_chain_raw, list):
+                        _arc_fb_chain = [
+                            f for f in _arc_fb_chain_raw
+                            if isinstance(f, dict) and f.get("provider") and f.get("model")
+                        ]
+                        self._fallback_chain = _arc_fb_chain
+                        self._fallback_model = _arc_fb_chain[0] if _arc_fb_chain else None
+                        self._fallback_index = 0
+                        self._fallback_activated = False
+                        logger.info(
+                            "hermes-arc: topic fallback chain loaded entries=%d",
+                            len(_arc_fb_chain),
+                        )
+
+                    logger.info(
+                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",
+'''
+        if modern_old in new_content:
+            new_content = new_content.replace(modern_old, modern_new, 1)
+        elif legacy_old in new_content:
+            new_content = new_content.replace(legacy_old, legacy_new, 1)
+        else:
+            print("⚠️  Could not locate runtime override apply block — topic fallback patch skipped")
+
     # ─── Patch 4: system_prompt support (pre_llm_call → inject before context assembly) ───
     if "HERMES_ARC_SYSTEM_PROMPT_PATCH" not in new_content:
         # Add _plugin_system_prompt init alongside _runtime_override
@@ -461,6 +512,7 @@ def verify_patch(content: str) -> dict:
         re.search(r'transform_llm_output[\s\S]{0,200}provider\s*=\s*self\.provider', content)
     )
     checks["HERMES_ARC_SYSTEM_PROMPT_PATCH"] = "HERMES_ARC_SYSTEM_PROMPT_PATCH" in content
+    checks["HERMES_ARC_TOPIC_FALLBACK_PATCH"] = "HERMES_ARC_TOPIC_FALLBACK_PATCH" in content
 
     return checks
 

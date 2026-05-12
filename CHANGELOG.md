@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.0 - 2026-05-12
+
+### Added
+- Optional per-topic `fallbacks` arrays in `topic_detect.topics`. ARC now emits a `runtime_override.fallback_chain` so a routed topic can try specialist fallbacks before Hermes falls back to the global/main runtime.
+- `patch_run_agent.py` verification for `HERMES_ARC_TOPIC_FALLBACK_PATCH`, which teaches patched cores to apply topic-scoped fallback chains.
+- Smoke test covering fallback config parsing and runtime override emission.
+
+### Changed
+- Runtime switch logs now include fallback count for easier diagnosis.
+
 ## 2.0.1 - 2026-05-12
 
 ### Fixed

@@ -55,6 +55,7 @@ ARC is intentionally small and practical. It does not claim to be a full smart-r
 - **Uses subject/topic as a tiebreaker** when action alone is not enough.
 - **Switches model/provider at runtime** based on `topic_detect.topics`.
 - **Adds a topic persona** from `AGENTS.md` so the routed model behaves like a specialist.
+- **Supports optional topic-scoped fallbacks** (`primary → topic fallback(s) → main/global fallback`).
 - **Falls back safely** to the main Hermes model when no specialized topic is confident enough.
 - **Shows a signature** so users can see what route was used.
 
@@ -183,6 +184,11 @@ topic_detect:
       model: google/gemma-4-31b:free
       base_url: https://openrouter.ai/api/v1
       api_key: ${OPENROUTER_API_KEY}
+      fallbacks:
+        - provider: openrouter
+          model: baidu/cobuddy:free
+          base_url: https://openrouter.ai/api/v1
+          api_key: ${OPENROUTER_API_KEY}
     math:
       provider: openrouter
       model: google/gemma-4-31b:free
@@ -221,6 +227,21 @@ topic_detect:
 ```
 
 These are only example defaults. ARC does **not** fetch Arena scores or choose models automatically. You remain in control of the model mapping.
+
+Each topic can include optional `fallbacks`. When the routed model fails, Hermes tries these entries before falling back to the agent's global fallback/main runtime:
+
+```yaml
+topic_detect:
+  topics:
+    software_it:
+      provider: openrouter
+      model: inclusionai/ring-2.6-1t:free
+      fallbacks:
+        - provider: openrouter
+          model: baidu/cobuddy:free
+        - provider: nous
+          model: qwen/qwen3.6-plus
+```
 
 ---
 
@@ -285,6 +306,7 @@ python -m pip install -r requirements-test.txt
 python -m compileall . -q
 python tests/test_v2_classifier.py
 python tests/test_signature_finalize.py
+python tests/test_fallback_config.py
 ```
 
 `requirements-test.txt` currently contains `PyYAML`, which is needed because the plugin config loader imports `yaml`.

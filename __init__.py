@@ -58,20 +58,32 @@ def _extract_messages(kwargs: dict[str, Any]) -> list[str]:
     return messages[-5:]
 
 
-def _runtime_updates(target) -> dict[str, Any]:
-    updates: dict[str, Any] = {
+def _target_runtime_dict(target) -> dict[str, Any]:
+    data: dict[str, Any] = {
         "model": target.model,
         "provider": target.provider,
     }
 
     if target.base_url:
-        updates["base_url"] = target.base_url
+        data["base_url"] = target.base_url
 
     if target.api_key:
-        updates["api_key"] = target.api_key
+        data["api_key"] = target.api_key
+
+    return data
+
+
+def _runtime_updates(target) -> dict[str, Any]:
+    updates = _target_runtime_dict(target)
 
     if target.system_prompt:
         updates["system_prompt"] = target.system_prompt
+
+    if getattr(target, "fallbacks", None):
+        updates["fallback_chain"] = [
+            _target_runtime_dict(fallback)
+            for fallback in target.fallbacks
+        ]
 
     return updates
 
@@ -252,10 +264,11 @@ def _pre_llm_call_impl(**kwargs):
     else:
         if target:
             logger.info(
-                "topic_detect: switching provider=%s model=%s base_url=%s",
+                "topic_detect: switching provider=%s model=%s base_url=%s fallbacks=%d",
                 target.provider,
                 target.model,
                 target.base_url,
+                len(getattr(target, "fallbacks", []) or []),
             )
         else:
             logger.info(

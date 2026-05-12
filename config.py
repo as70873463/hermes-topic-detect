@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,7 @@ class Target:
     base_url: str | None = None
     api_key: str | None = None
     system_prompt: str | None = None
+    fallbacks: list["Target"] = field(default_factory=list)
 
 
 @dataclass
@@ -66,12 +67,22 @@ def _target_from_dict(data: dict[str, Any]) -> Target | None:
     if not provider or not model:
         return None
 
+    fallbacks: list[Target] = []
+    raw_fallbacks = data.get("fallbacks", [])
+    if isinstance(raw_fallbacks, list):
+        for item in raw_fallbacks:
+            if isinstance(item, dict):
+                fallback = _target_from_dict(item)
+                if fallback is not None:
+                    fallbacks.append(fallback)
+
     return Target(
         provider=str(provider),
         model=str(model),
         base_url=_expand_env(data.get("base_url")),
         api_key=_expand_env(data.get("api_key"), none_if_unresolved=True),
         system_prompt=data.get("system_prompt"),
+        fallbacks=fallbacks,
     )
 
 

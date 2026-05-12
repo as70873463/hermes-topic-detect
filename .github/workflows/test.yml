@@ -20,3 +20,5 @@ jobs:
         run: python tests/test_v2_classifier.py
       - name: Run signature finalize test
         run: python tests/test_signature_finalize.py
+      - name: Run fallback config test
+        run: python tests/test_fallback_config.py
