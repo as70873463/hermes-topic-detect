@@ -169,20 +169,11 @@ def apply_patch(path: Path, content: str) -> str:
     2. HERMES_ARC_RESPONSE_SUFFIX_PATCH: render _arc_signature in final response
     3. transform_llm_output provider injection
     """
-    if (
-        "HERMES_ARC_PATCH: runtime_override support" in content
-        and "HERMES_ARC_RESPONSE_SUFFIX_PATCH" in content
-        and "_arc_signature" in content
-        and "_arc_resolve_provider_client" in content
-        and "HERMES_ARC_TRANSFORM_PROVIDER_PATCH" in content
-    ):
-        print("ℹ️  Patch already applied — skipping")
-        return content
-
     new_content = content
 
     # ─── Patch 1A: Add _runtime_override init before pre_llm_call block ───
-    if "HERMES_ARC_PATCH: runtime_override support" not in new_content:
+    # Run each sub-patch independently so partially patched cores can be repaired.
+    if "_runtime_override = {}" not in new_content:
         init_old = '        _plugin_user_context = ""\n        try:\n'
         init_new = (
             '        _plugin_user_context = ""\n'
@@ -191,11 +182,12 @@ def apply_patch(path: Path, content: str) -> str:
             '        try:\n'
         )
         if init_old not in new_content:
-            print("⚠️  Could not locate pre_llm_call initialization — patch skipped")
-            return content
-        new_content = new_content.replace(init_old, init_new, 1)
+            print("⚠️  Could not locate pre_llm_call initialization — init patch skipped")
+        else:
+            new_content = new_content.replace(init_old, init_new, 1)
 
-        # ─── Patch 1B: Collect runtime_override from pre_llm_call results ───
+    # ─── Patch 1B: Collect runtime_override from pre_llm_call results ───
+    if '_arc_ov = r.get("runtime_override")' not in new_content:
         loop_old = (
             '            for r in _pre_results:\n'
             '                if isinstance(r, dict) and r.get("context"):\n'
@@ -215,11 +207,12 @@ def apply_patch(path: Path, content: str) -> str:
             '                    _ctx_parts.append(r)\n'
         )
         if loop_old not in new_content:
-            print("⚠️  Could not locate pre_llm_call result loop — patch skipped")
-            return content
-        new_content = new_content.replace(loop_old, loop_new, 1)
+            print("⚠️  Could not locate pre_llm_call result loop — collect patch skipped")
+        else:
+            new_content = new_content.replace(loop_old, loop_new, 1)
 
-        # ─── Patch 1C: Apply runtime overrides after context assembly ───
+    # ─── Patch 1C: Apply runtime overrides after context assembly ───
+    if "_arc_resolve_provider_client" not in new_content:
         ctx_old = (
             '            if _ctx_parts:\n'
             '                _plugin_user_context = "\\n\\n".join(_ctx_parts)\n'
@@ -359,7 +352,7 @@ def apply_patch(path: Path, content: str) -> str:
             print("⚠️  Could not locate transform_llm_output hook call — provider patch skipped")
 
     # ─── Patch 3: Response suffix rendering (signature append) ───
-    if "HERMES_ARC_RESPONSE_SUFFIX_PATCH" not in new_content:
+    if "_arc_signature" not in new_content:
         # Insert before post_llm_call. Older patcher versions required the exact
         # transform warning line immediately before this marker; newer Hermes
         # cores may change spacing/comments, so anchor on the stable next hook.
