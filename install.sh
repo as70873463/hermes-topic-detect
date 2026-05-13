@@ -12,12 +12,15 @@ set -euo pipefail
 
 # ── Defaults ────────────────────────────────────────────────────────────────
 REPO_RAW="https://raw.githubusercontent.com/ShockShoot/hermes-arc/main"
-PLUGIN_DIR="${HOME}/.hermes/plugins/topic_detect"
+HERMES_HOME_DEFAULT="${HERMES_HOME:-${HOME}/.hermes}"
+PLUGIN_DIR="${HERMES_HOME_DEFAULT}/plugins/topic_detect"
+PLUGIN_DIR_EXPLICIT=false
 RESTART=true
 PATCH_RUNTIME="prompt" # prompt | yes | no
 RUN_AGENT_PATH=""
 CONFIGURE=true
-CONFIG_PATH="${HOME}/.hermes/config.yaml"
+CONFIG_PATH="${HERMES_HOME_DEFAULT}/config.yaml"
+CONFIG_PATH_EXPLICIT=false
 CHECK_ONLY=false
 UPDATE_REQUESTED=false
 
@@ -26,9 +29,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) CHECK_ONLY=true; shift ;;
     --update) UPDATE_REQUESTED=true; shift ;;
-    --plugin-dir) PLUGIN_DIR="$2"; shift 2 ;;
+    --plugin-dir) PLUGIN_DIR="$2"; PLUGIN_DIR_EXPLICIT=true; shift 2 ;;
     --run-agent-path) RUN_AGENT_PATH="$2"; shift 2 ;;
-    --config-path) CONFIG_PATH="$2"; shift 2 ;;
+    --config-path) CONFIG_PATH="$2"; CONFIG_PATH_EXPLICIT=true; shift 2 ;;
     --no-config) CONFIGURE=false; shift ;;
     --no-restart) RESTART=false; shift ;;
     --patch-runtime) PATCH_RUNTIME="yes"; shift ;;
@@ -54,12 +57,6 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
-
-echo ""
-echo "🧊 Hermes ARC (Adaptive Routing Core) — Installer"
-echo "   Plugin name : topic_detect"
-echo "   Target dir  : ${PLUGIN_DIR}"
-echo ""
 
 get_yaml_version() {
   local path_or_url="$1"
@@ -93,6 +90,12 @@ PY
 
 if [[ "${CHECK_ONLY}" == true ]]; then
   if ! command -v python3 &>/dev/null; then echo "❌ python3 not found"; exit 1; fi
+  if [[ "${PLUGIN_DIR_EXPLICIT}" != true ]] && command -v hermes &>/dev/null; then
+    HERMES_CONFIG_DISCOVERED="$(hermes config path 2>/dev/null | awk '/config\.yaml$/ {print; exit}' || true)"
+    if [[ -n "${HERMES_CONFIG_DISCOVERED}" ]]; then
+      PLUGIN_DIR="$(dirname "${HERMES_CONFIG_DISCOVERED}")/plugins/topic_detect"
+    fi
+  fi
   if ! python3 - <<'PY' >/dev/null 2>&1
 import yaml
 PY
@@ -127,6 +130,28 @@ if ! command -v python3 &>/dev/null; then
   echo "❌ python3 not found. Hermes ARC requires Python 3."
   exit 1
 fi
+
+# Prefer the active Hermes config/home over the shell user's HOME. This matters
+# for pip/uv installs, root shells, systemd gateways, and custom HERMES_HOME.
+if [[ "${CONFIG_PATH_EXPLICIT}" != true || "${PLUGIN_DIR_EXPLICIT}" != true ]]; then
+  HERMES_CONFIG_DISCOVERED="$(hermes config path 2>/dev/null | awk '/config\.yaml$/ {print; exit}' || true)"
+  if [[ -n "${HERMES_CONFIG_DISCOVERED}" ]]; then
+    HERMES_HOME_DISCOVERED="$(dirname "${HERMES_CONFIG_DISCOVERED}")"
+    if [[ "${CONFIG_PATH_EXPLICIT}" != true ]]; then
+      CONFIG_PATH="${HERMES_CONFIG_DISCOVERED}"
+    fi
+    if [[ "${PLUGIN_DIR_EXPLICIT}" != true ]]; then
+      PLUGIN_DIR="${HERMES_HOME_DISCOVERED}/plugins/topic_detect"
+    fi
+  fi
+fi
+
+echo ""
+echo "🧊 Hermes ARC (Adaptive Routing Core) — Installer"
+echo "   Plugin name : topic_detect"
+echo "   Target dir  : ${PLUGIN_DIR}"
+echo "   Config path : ${CONFIG_PATH}"
+echo ""
 
 # ── Create plugin directory ─────────────────────────────────────────────────
 mkdir -p "${PLUGIN_DIR}"

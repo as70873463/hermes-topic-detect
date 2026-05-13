@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.4 - 2026-05-13
+
+### Fixed
+- Installer/runtime discovery now resolves the active Hermes config home and finds `run_agent.py` across source checkouts, pip/uv installs, importable runtimes, and running Hermes gateway processes instead of relying only on `$HOME` static paths.
+
 ## 2.1.3 - 2026-05-13
 
 ### Added

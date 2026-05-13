@@ -13,17 +13,145 @@ Usage:
 """
 
 import argparse
-import hashlib
 import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from datetime import datetime
 
 RUN_AGENT_PATH = Path("/usr/local/lib/hermes-agent/run_agent.py")
 BACKUP_SUFFIX = ".backup"
+
+
+def _safe_resolve(path: Path) -> Path | None:
+    """Resolve a path without throwing for broken symlinks or unreadable parents."""
+    try:
+        return path.expanduser().resolve()
+    except OSError:
+        return None
+
+
+def _hermes_home_candidates() -> list[Path]:
+    """Return likely Hermes homes, preferring the active `hermes config path`."""
+    homes: list[Path] = []
+
+    def add_home(path: str | Path | None) -> None:
+        if not path:
+            return
+        resolved = _safe_resolve(Path(path))
+        if resolved and resolved not in homes:
+            homes.append(resolved)
+
+    add_home(os.environ.get("HERMES_HOME"))
+
+    hermes_bin = shutil.which("hermes")
+    if hermes_bin:
+        try:
+            proc = subprocess.run(
+                [hermes_bin, "config", "path"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=8,
+                check=False,
+            )
+            for line in proc.stdout.splitlines():
+                candidate = line.strip()
+                if candidate.endswith("config.yaml"):
+                    add_home(Path(candidate).expanduser().parent)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    add_home(Path.home() / ".hermes")
+    return homes
+
+
+def _read_shebang_interpreter(script: Path) -> Path | None:
+    """Best-effort interpreter extraction from an executable wrapper script."""
+    try:
+        with script.open("rb") as fh:
+            first = fh.readline(512).decode(errors="ignore").strip()
+    except OSError:
+        return None
+    if not first.startswith("#!"):
+        return None
+
+    parts = first[2:].strip().split()
+    if not parts:
+        return None
+    if Path(parts[0]).name == "env":
+        # Handles common wrappers: #!/usr/bin/env python3, env -S python3 -u
+        rest = parts[1:]
+        if rest[:1] == ["-S"]:
+            rest = rest[1:]
+        if rest:
+            found = shutil.which(rest[0])
+            return Path(found) if found else None
+        return None
+    return Path(parts[0])
+
+
+def _probe_imported_run_agent(python_exe: Path | str | None) -> Path | None:
+    """Ask a Python interpreter where its importable run_agent module lives."""
+    if not python_exe:
+        return None
+    exe = str(python_exe)
+    code = (
+        "import inspect, pathlib, sys\n"
+        "try:\n"
+        "    import run_agent\n"
+        "    print(pathlib.Path(inspect.getfile(run_agent)).resolve())\n"
+        "except Exception:\n"
+        "    sys.exit(1)\n"
+    )
+    try:
+        proc = subprocess.run(
+            [exe, "-c", code],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    first = proc.stdout.splitlines()[0].strip() if proc.stdout.splitlines() else ""
+    return Path(first) if first else None
+
+
+def _process_runtime_candidates() -> list[Path]:
+    """Inspect running Hermes processes for cwd/executable-adjacent run_agent.py files."""
+    paths: list[Path] = []
+    proc_root = Path("/proc")
+    if not proc_root.exists():
+        return paths
+
+    for pid_dir in proc_root.iterdir():
+        if not pid_dir.name.isdigit():
+            continue
+        try:
+            cmdline = (pid_dir / "cmdline").read_bytes().replace(b"\x00", b" ").decode(errors="ignore")
+        except OSError:
+            continue
+        if "hermes" not in cmdline.lower():
+            continue
+
+        cwd = _safe_resolve(pid_dir / "cwd")
+        if cwd:
+            paths.append(cwd / "run_agent.py")
+            paths.append(cwd / "hermes-agent" / "run_agent.py")
+
+        exe = _safe_resolve(pid_dir / "exe")
+        if exe:
+            paths.append(exe.parent / "run_agent.py")
+            paths.append(exe.parent.parent / "run_agent.py")
+            imported = _probe_imported_run_agent(exe)
+            if imported:
+                paths.append(imported)
+    return paths
 
 
 def _looks_like_hermes_run_agent(path: Path) -> bool:
@@ -39,37 +167,57 @@ def _looks_like_hermes_run_agent(path: Path) -> bool:
 
 
 def find_run_agent_candidates() -> list[Path]:
-    """Locate likely Hermes run_agent.py files across common install layouts."""
+    """Locate likely Hermes run_agent.py files across source, pip/uv, and service layouts."""
     candidates: list[Path] = []
 
-    def add(path: Path) -> None:
-        try:
-            resolved = path.expanduser().resolve()
-        except OSError:
+    def add(path: str | Path | None) -> None:
+        if not path:
             return
-        if resolved not in candidates and _looks_like_hermes_run_agent(resolved):
+        resolved = _safe_resolve(Path(path))
+        if resolved and resolved not in candidates and _looks_like_hermes_run_agent(resolved):
             candidates.append(resolved)
 
+    # Explicit environment override for scripts/services.
+    add(os.environ.get("HERMES_RUN_AGENT_PATH"))
+
+    # Static/common source-checkout locations.
     known = [
         RUN_AGENT_PATH,
+        Path.cwd() / "run_agent.py",
         Path.home() / ".hermes/hermes-agent/run_agent.py",
         Path.home() / ".hermes/hermes_agent/run_agent.py",
         Path.home() / "hermes-agent/run_agent.py",
-        Path.cwd() / "run_agent.py",
     ]
+    for home in _hermes_home_candidates():
+        known.extend([
+            home / "hermes-agent/run_agent.py",
+            home / "hermes_agent/run_agent.py",
+        ])
     for path in known:
         add(path)
 
+    # The active `hermes` wrapper is the best signal for pip/uv installs.
     hermes_bin = shutil.which("hermes")
     if hermes_bin:
-        try:
-            exe = Path(hermes_bin).resolve()
+        exe = _safe_resolve(Path(hermes_bin))
+        if exe:
             for parent in [exe.parent, *exe.parents]:
                 add(parent / "run_agent.py")
                 add(parent.parent / "run_agent.py")
-        except OSError:
-            pass
 
+            shebang_python = _read_shebang_interpreter(exe)
+            add(_probe_imported_run_agent(shebang_python))
+
+    # Also probe the interpreter running the patcher; this covers `python -m pip`
+    # editable installs where `hermes` and the patcher share the same venv.
+    add(_probe_imported_run_agent(sys.executable))
+    add(_probe_imported_run_agent(shutil.which("python3")))
+
+    # If a gateway/CLI is already running, inspect its process context.
+    for path in _process_runtime_candidates():
+        add(path)
+
+    # Last resort: bounded filesystem searches in common install roots.
     roots = [
         Path("/usr/local/lib"),
         Path("/usr/local/share"),
@@ -77,11 +225,14 @@ def find_run_agent_candidates() -> list[Path]:
         Path.home() / ".hermes",
         Path.home() / ".local",
     ]
+    for home in _hermes_home_candidates():
+        roots.append(home)
     for root in roots:
-        if not root.exists():
+        resolved_root = _safe_resolve(root)
+        if not resolved_root or not resolved_root.exists():
             continue
         try:
-            for path in root.rglob("run_agent.py"):
+            for path in resolved_root.rglob("run_agent.py"):
                 add(path)
         except (OSError, PermissionError):
             continue
@@ -528,11 +679,6 @@ def apply_patch(path: Path, content: str) -> str:
         if old_runtime_init in new_content:
             new_content = new_content.replace(old_runtime_init, new_runtime_init, 1)
 
-        # Add system_prompt extraction from runtime_override, after context assembly
-        old_ctx_end = '                    logger.info(\n                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",\n'
-        new_ctx_end = '''                    logger.info(
-                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",
-'''
         # We need to inject system_prompt capture right after the runtime block
         # Find the end of the runtime block and inject system_prompt handling
         inject_point = '                    logger.info(\n                        "hermes-arc: runtime_override applied provider=%s model=%s api_mode=%s",\n                        getattr(self, "provider", ""),\n                        getattr(self, "model", ""),\n                        getattr(self, "api_mode", ""),\n                    )\n'
@@ -584,8 +730,14 @@ def main():
     parser.add_argument("--check", action="store_true", help="Check only")
     parser.add_argument("--patch", action="store_true", help="Check and patch if needed")
     parser.add_argument("--verify", action="store_true", help="Verify patch applied")
+    parser.add_argument("--list", action="store_true", help="List discovered Hermes run_agent.py candidates")
     parser.add_argument("--path", type=str, help="Explicit path to run_agent.py")
     args = parser.parse_args()
+
+    if args.list:
+        for candidate in find_run_agent_candidates():
+            print(candidate)
+        return
 
     if not any([args.check, args.patch, args.verify]):
         parser.print_help()
