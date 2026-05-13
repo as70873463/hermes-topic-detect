@@ -46,9 +46,9 @@ topic_detect:
         mod.classify = fail_classify
         mod._CORE_RESPONSE_SUFFIX_SUPPORTED = False
 
-        # Test /skipdetect prefix
+        # Test short /sd prefix
         result = mod._pre_llm_call_impl(
-            user_message="/skipdetect แก้พอร์ตในเว็บอ่านนิยาย",
+            user_message="/sd แก้พอร์ตในเว็บอ่านนิยาย",
             conversation_history=[],
             model="gpt-5.5",
             provider="openai-codex",
@@ -72,13 +72,14 @@ topic_detect:
         else:
             os.environ["HOME"] = old_home
 
-# Test prefix stripping for all variants
-for pfx in ("/skipdetect", "!skipdetect", "@@skipdetect"):
+# Test prefix stripping for all short and full variants
+for pfx in ("/sd", "!sd", "@@sd", "/skipdetect", "!skipdetect", "@@skipdetect"):
     assert mod._strip_skipdetect_prefix(f"{pfx} calculate ROI") == "calculate ROI"
     assert mod._strip_skipdetect_prefix(f"  {pfx}  hello") == "hello"
     assert mod._strip_skipdetect_prefix(f"{pfx}") == ""
 
 assert mod._strip_skipdetect_prefix("ปกติ") is None
 assert mod._strip_skipdetect_prefix("/skip") is None
+assert mod._strip_skipdetect_prefix("/sdd calculate ROI") is None
 
-print("PASS | /skipdetect bypasses classifier, restores main, strips prefix, signs [skip]")
+print("PASS | skipdetect aliases bypass classifier, restore main, strip prefix, sign [skip]")

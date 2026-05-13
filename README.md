@@ -56,7 +56,7 @@ ARC is intentionally small and practical. It does not claim to be a full smart-r
 - **Switches model/provider at runtime** based on `topic_detect.topics`.
 - **Adds a topic persona** from `AGENTS.md` so the routed model behaves like a specialist.
 - **Supports optional topic-scoped fallbacks** (`primary → topic fallback(s) → main/global fallback`).
-- **Supports `/skipdetect <message>`** to bypass ARC classification and use the main model for one turn.
+- **Supports `/sd <message>`** (plus full `/skipdetect`) to bypass ARC classification and use the main model for one turn.
 - **Falls back safely** to the main Hermes model when no specialized topic is confident enough.
 - **Shows a signature** so users can see what route was used.
 
@@ -99,10 +99,12 @@ User: debug this server, but the routed model falls back in Hermes
 ARC:  route=software_it, final responder differs from requested route model
 Shown suffix: - gemini-3-flash [software_it | routed: nemotron-3-super-120b-a12b]
 
-User: /skipdetect fix this failing API test
+User: /sd fix this failing API test
 ARC:  skip classification and routing for this turn → main model
 Shown suffix: - gpt-5.5 [skip]
 ```
+
+Skip aliases: `/sd`, `!sd`, `@@sd`, `/skipdetect`, `!skipdetect`, `@@skipdetect`.
 
 ---
 

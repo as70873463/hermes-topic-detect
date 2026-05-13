@@ -62,10 +62,12 @@ def _strip_skipdetect_prefix(message: str | None) -> str | None:
     text = str(message or "")
     stripped = text.lstrip()
 
-    prefixes = ("/skipdetect ", "/skipdetect", "!skipdetect ", "!skipdetect", "@@skipdetect ", "@@skipdetect")
-    for pfx in prefixes:
-        if stripped == pfx or stripped.startswith(pfx):
-            remainder = stripped[len(pfx):].lstrip()
+    commands = ("/sd", "!sd", "@@sd", "/skipdetect", "!skipdetect", "@@skipdetect")
+    for command in commands:
+        if stripped == command:
+            return ""
+        if stripped.startswith(f"{command} "):
+            remainder = stripped[len(command):].lstrip()
             return remainder if remainder else ""
 
     return None
@@ -172,7 +174,7 @@ def _pre_llm_call_impl(**kwargs):
 
     skip_message = _strip_skipdetect_prefix(kwargs.get("user_message"))
     if skip_message is not None:
-        logger.info("topic_detect: /skipdetect requested; bypassing classification and routing")
+        logger.info("topic_detect: skipdetect requested; bypassing classification and routing")
         updates: dict[str, Any] = {
             "restore_main": True,
             "user_message": skip_message,

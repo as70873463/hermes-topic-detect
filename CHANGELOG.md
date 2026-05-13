@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.3 - 2026-05-13
+
+### Added
+- Short skip aliases `/sd`, `!sd`, and `@@sd` for faster one-turn ARC bypass while keeping `/skipdetect`, `!skipdetect`, and `@@skipdetect` as full-form aliases.
+
 ## 2.1.2 - 2026-05-13
 
 ### Fixed
