@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.2 - 2026-05-13
+
+### Fixed
+- Avoid duplicate ARC signatures on patched Hermes cores by emitting only the structured `_arc_signature` runtime metadata and no longer also setting `response_suffix` for the same turn.
+- Preserve the legacy `transform_llm_output` compatibility path for older Hermes cores that do not consume structured `_arc_signature` metadata.
+
 ## 2.1.1 - 2026-05-12
 
 ### Added
