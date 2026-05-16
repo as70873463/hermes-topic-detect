@@ -16,7 +16,7 @@ HERMES_HOME_DEFAULT="${HERMES_HOME:-${HOME}/.hermes}"
 PLUGIN_DIR="${HERMES_HOME_DEFAULT}/plugins/topic_detect"
 PLUGIN_DIR_EXPLICIT=false
 RESTART=true
-PATCH_RUNTIME="prompt" # prompt | yes | no
+PATCH_RUNTIME="auto" # auto | prompt | yes | no
 RUN_AGENT_PATH=""
 CONFIGURE=true
 CONFIG_PATH="${HERMES_HOME_DEFAULT}/config.yaml"
@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --run-agent-path PATH Target a specific Hermes run_agent.py when multiple installs exist"
       echo "  --patch-runtime       Patch Hermes run_agent.py automatically if ARC support is missing"
       echo "  --no-patch-runtime    Never patch Hermes core runtime"
-      echo "  default               Ask before patching when a TTY is available; skip in non-interactive mode"
+      echo "  default               Auto-patch when exactly one Hermes runtime is found; prompt only when needed"
       exit 0
       ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
@@ -286,13 +286,13 @@ if [[ -f "${PATCHER}" ]]; then
     CHECK_OUTPUT="$(python3 "${PATCHER}" --check --path "${RUN_AGENT_PATH}" 2>&1 || true)"
     echo "${CHECK_OUTPUT}"
 
-    if echo "${CHECK_OUTPUT}" | grep -q "fully compatible"; then
+    if echo "${CHECK_OUTPUT}" | grep -Eq "All checks passed|fully compatible|no patch needed"; then
       echo "✅ Runtime already supports Hermes ARC overrides"
     else
       echo "⚠️  Hermes runtime may need ARC compatibility patching."
       echo "   Target: ${RUN_AGENT_PATH}"
       echo "   The patcher creates a timestamped backup before changing run_agent.py."
-      echo "   If you have custom run_agent.py edits, review carefully or choose no."
+      echo "   If you have custom run_agent.py edits, review carefully or choose --no-patch-runtime."
 
       SHOULD_PATCH="no"
       case "${PATCH_RUNTIME}" in
@@ -301,6 +301,10 @@ if [[ -f "${PATCHER}" ]]; then
           ;;
         no)
           SHOULD_PATCH="no"
+          ;;
+        auto)
+          SHOULD_PATCH="yes"
+          echo "   Auto-patching because a single Hermes runtime was selected."
           ;;
         prompt)
           if [[ -r /dev/tty && -w /dev/tty ]]; then
@@ -313,7 +317,7 @@ if [[ -f "${PATCHER}" ]]; then
               *) SHOULD_PATCH="no" ;;
             esac
           else
-            echo "   Non-interactive install detected — skipping runtime patch."
+            echo "   Non-interactive prompt mode detected — skipping runtime patch."
             echo "   To force patching safely, include target path:"
             echo "   curl -fsSL ${REPO_RAW}/install.sh | bash -s -- --patch-runtime --run-agent-path ${RUN_AGENT_PATH}"
           fi
@@ -322,10 +326,10 @@ if [[ -f "${PATCHER}" ]]; then
 
       if [[ "${SHOULD_PATCH}" == "yes" ]]; then
         echo "🩹 Applying Hermes ARC runtime compatibility patch..."
-        python3 "${PATCHER}" --patch --path "${RUN_AGENT_PATH}"
+        python3 "${PATCHER}" --patch --verify --path "${RUN_AGENT_PATH}"
       else
         echo "ℹ️  Runtime patch skipped. You can run later:"
-        echo "   python3 ${PATCHER} --patch --path ${RUN_AGENT_PATH}"
+        echo "   python3 ${PATCHER} --patch --verify --path ${RUN_AGENT_PATH}"
       fi
     fi
     echo ""

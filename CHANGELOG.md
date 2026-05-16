@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.5 - 2026-05-16
+
+### Fixed
+- Plain `curl -fsSL .../install.sh | bash` installs/updates ARC and automatically re-applies the runtime patch when exactly one Hermes `run_agent.py` is discovered, which makes the normal install command safe to run after `hermes update`.
+- Installer compatibility detection now recognizes the current patcher success output (`All checks passed`) instead of prompting on already-patched runtimes.
+- Non-interactive installs still skip patching when multiple Hermes runtimes are discovered; pass `--run-agent-path` to choose explicitly.
+
 ## 2.1.4 - 2026-05-13
 
 ### Fixed

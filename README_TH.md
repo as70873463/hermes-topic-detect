@@ -193,6 +193,8 @@ Hermes core pre_llm_call runtime override
 curl -fsSL https://raw.githubusercontent.com/ShockShoot/hermes-arc/main/install.sh | bash
 ```
 
+คำสั่งเดียวกันนี้ใช้เป็นคำสั่ง update/repatch หลัง `hermes update` ได้เลย: installer จะโหลด ARC ล่าสุด เติม config และ auto-patch runtime เมื่อเจอ Hermes `run_agent.py` เพียงตัวเดียว ถ้ามีหลาย runtime ให้ใส่ `--run-agent-path /path/to/run_agent.py` เพื่อเลือกให้ชัดเจน
+
 เช็ค update โดยยังไม่ติดตั้ง:
 
 ```bash
