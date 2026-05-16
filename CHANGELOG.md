@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.6 - 2026-05-16
+
+### Added
+- Interactive arrow-key runtime selector for the plain `curl -fsSL .../install.sh | bash` installer flow when multiple Hermes `run_agent.py` candidates are found. Use ↑/↓ or k/j, Enter to select, q/Esc to skip.
+
 ## 2.1.5 - 2026-05-16
 
 ### Fixed

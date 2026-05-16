@@ -88,6 +88,88 @@ raise SystemExit(0 if a>b else 1)
 PY
 }
 
+
+select_runtime_with_arrows() {
+  local count="${#RUN_AGENT_CANDIDATES[@]}"
+  local selected=0
+  local key rest i prefix
+
+  if [[ "${count}" -le 0 || ! -r /dev/tty || ! -w /dev/tty ]]; then
+    return 1
+  fi
+
+  printf "\nSelect Hermes runtime to check/patch\n" > /dev/tty
+  printf "Use ↑/↓ (or k/j), Enter to select, q/Esc to skip.\n" > /dev/tty
+
+  # Hide cursor while drawing the small menu. Always show it again before exit.
+  printf '\033[?25l' > /dev/tty
+
+  render_runtime_menu() {
+    for i in "${!RUN_AGENT_CANDIDATES[@]}"; do
+      if (( i == selected )); then
+        prefix="❯"
+      else
+        prefix=" "
+      fi
+      printf '\r\033[2K  %s %d) %s\n' "${prefix}" "$((i + 1))" "${RUN_AGENT_CANDIDATES[$i]}" > /dev/tty
+    done
+  }
+
+  render_runtime_menu
+
+  while IFS= read -rsn1 key < /dev/tty; do
+    case "${key}" in
+      $'\x1b')
+        # Escape alone skips; escape sequence [A/[B handles arrow keys.
+        if IFS= read -rsn2 -t 0.05 rest < /dev/tty; then
+          case "${rest}" in
+            '[A') selected=$(( (selected - 1 + count) % count )) ;;
+            '[B') selected=$(( (selected + 1) % count )) ;;
+            *) printf '\033[?25h' > /dev/tty; return 1 ;;
+          esac
+        else
+          printf '\033[?25h' > /dev/tty
+          return 1
+        fi
+        ;;
+      $'\n'|$'\r')
+        printf '\033[?25h' > /dev/tty
+        printf "\n" > /dev/tty
+        echo "${selected}"
+        return 0
+        ;;
+      q|Q)
+        printf '\033[?25h' > /dev/tty
+        printf "\n" > /dev/tty
+        return 1
+        ;;
+      k|K)
+        selected=$(( (selected - 1 + count) % count ))
+        ;;
+      j|J)
+        selected=$(( (selected + 1) % count ))
+        ;;
+      '')
+        ;;
+      *)
+        # Number shortcuts remain available for keyboard-only shells.
+        if [[ "${key}" =~ ^[1-9]$ ]] && (( key >= 1 && key <= count )); then
+          selected=$((key - 1))
+          printf '\033[?25h' > /dev/tty
+          printf "\n" > /dev/tty
+          echo "${selected}"
+          return 0
+        fi
+        ;;
+    esac
+    printf '\033[%dA' "${count}" > /dev/tty
+    render_runtime_menu
+  done
+
+  printf '\033[?25h' > /dev/tty
+  return 1
+}
+
 if [[ "${CHECK_ONLY}" == true ]]; then
   if ! command -v python3 &>/dev/null; then echo "❌ python3 not found"; exit 1; fi
   if [[ "${PLUGIN_DIR_EXPLICIT}" != true ]] && command -v hermes &>/dev/null; then
@@ -250,27 +332,13 @@ if [[ -f "${PATCHER}" ]]; then
       done
 
       if [[ -r /dev/tty && -w /dev/tty ]]; then
-        while true; do
-          printf "Select runtime to check/patch [1-%d] or q to skip: " "${#RUN_AGENT_CANDIDATES[@]}" > /dev/tty
-          read -r REPLY < /dev/tty || REPLY=""
-          case "${REPLY}" in
-            q|Q|quit|QUIT|skip|SKIP)
-              RUN_AGENT_PATH=""
-              break
-              ;;
-            ''|*[!0-9]*)
-              echo "   Please enter a number or q."
-              ;;
-            *)
-              if (( REPLY >= 1 && REPLY <= ${#RUN_AGENT_CANDIDATES[@]} )); then
-                RUN_AGENT_PATH="${RUN_AGENT_CANDIDATES[$((REPLY - 1))]}"
-                break
-              else
-                echo "   Choice out of range."
-              fi
-              ;;
-          esac
-        done
+        if SELECTED_RUNTIME_INDEX="$(select_runtime_with_arrows)"; then
+          RUN_AGENT_PATH="${RUN_AGENT_CANDIDATES[${SELECTED_RUNTIME_INDEX}]}"
+          echo "   ✅ Selected: ${RUN_AGENT_PATH}"
+        else
+          echo "   Runtime selection skipped."
+          RUN_AGENT_PATH=""
+        fi
       else
         echo "   Non-interactive install cannot choose safely — runtime patch skipped."
         echo "   Re-run with --run-agent-path /path/to/run_agent.py"
